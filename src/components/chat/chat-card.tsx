@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSessionStore } from "@/store/sessionStore";
 import type { ChatMessageData } from "@/types";
 
@@ -14,16 +14,18 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { session, enterSubChat, returnToTree } = useSessionStore();
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, streamingContent, scrollToBottom]);
 
   const handleSend = async () => {
     if (!input.trim() || !session) return;
@@ -40,6 +42,10 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
+    setStreamingContent("");
+
+    const abortController = new AbortController();
+    abortRef.current = abortController;
 
     try {
       const response = await fetch("/api/chat", {
@@ -53,27 +59,64 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
             content: m.content,
           })),
         }),
+        signal: abortController.signal,
       });
 
       if (!response.ok) throw new Error("Failed to get response");
 
-      const data = await response.json();
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let fullContent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const text = decoder.decode(value, { stream: true });
+        const lines = text.split("\n");
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+
+          if (data === "[DONE]") continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.error) {
+              console.error("Stream error:", parsed.error);
+              continue;
+            }
+            if (parsed.content) {
+              fullContent += parsed.content;
+              setStreamingContent(fullContent);
+            }
+          } catch {
+            // skip malformed JSON lines
+          }
+        }
+      }
 
       const assistantMessage: ChatMessageData = {
         id: (Date.now() + 1).toString(),
         nodeId,
         role: "assistant",
-        content: data.content,
-        type: data.type || "text",
-        spawnedNodeId: data.spawnedNodeId,
+        content: fullContent,
+        type: "text",
         timestamp: new Date(),
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+      setStreamingContent("");
     } catch (error) {
-      console.error("Chat error:", error);
+      if ((error as Error).name !== "AbortError") {
+        console.error("Chat error:", error);
+      }
     } finally {
       setIsLoading(false);
+      abortRef.current = null;
     }
   };
 
@@ -86,9 +129,8 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
 
   return (
     <div
-      className={`flex flex-col h-full bg-slate-900/95 backdrop-blur-sm ${
-        isNested ? "rounded-lg border border-slate-700" : ""
-      }`}
+      className={`flex flex-col h-full bg-slate-900/95 backdrop-blur-sm ${isNested ? "rounded-lg border border-slate-700" : ""
+        }`}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
@@ -106,7 +148,7 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.length === 0 && (
+        {messages.length === 0 && !isLoading && (
           <div className="text-center text-slate-500 py-8">
             <p>开始探讨「{title}」</p>
             <p className="text-sm mt-1">你可以提问、讨论或请求解释</p>
@@ -116,18 +158,16 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
         {messages.map((message) => (
           <div
             key={message.id}
-            className={`flex ${
-              message.role === "user" ? "justify-end" : "justify-start"
-            }`}
+            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
+              }`}
           >
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                message.role === "user"
+              className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === "user"
                   ? "bg-sky-600 text-white"
                   : message.type === "correction"
-                  ? "bg-orange-900/50 border border-orange-700 text-orange-100"
-                  : "bg-slate-800 text-slate-200"
-              }`}
+                    ? "bg-orange-900/50 border border-orange-700 text-orange-100"
+                    : "bg-slate-800 text-slate-200"
+                }`}
             >
               <div className="text-sm whitespace-pre-wrap">{message.content}</div>
               {message.type === "correction" && (
@@ -146,7 +186,17 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
           </div>
         ))}
 
-        {isLoading && (
+        {/* 流式输出中的内容 */}
+        {streamingContent && (
+          <div className="flex justify-start">
+            <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-slate-800 text-slate-200">
+              <div className="text-sm whitespace-pre-wrap">{streamingContent}</div>
+              <span className="inline-block w-1.5 h-4 bg-sky-400 animate-pulse ml-0.5 align-text-bottom" />
+            </div>
+          </div>
+        )}
+
+        {!streamingContent && isLoading && (
           <div className="flex justify-start">
             <div className="bg-slate-800 rounded-2xl px-4 py-3">
               <div className="flex gap-1">

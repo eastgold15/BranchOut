@@ -1,9 +1,7 @@
-import { openai } from "@ai-sdk/openai";
-import { streamText, generateObject } from "ai";
+import { deepseekClient } from "./deepseek-client";
 import { z } from "zod";
-import type { TopicNodeData } from "@/types";
 
-const model = openai("gpt-4o-mini");
+const MODEL = "deepseek-v4-pro";
 
 const knowledgeTreeSchema = z.object({
   nodes: z.array(
@@ -17,24 +15,41 @@ const knowledgeTreeSchema = z.object({
 });
 
 export async function generateKnowledgeTree(topic: string) {
-  const result = await generateObject({
-    model,
-    schema: knowledgeTreeSchema,
-    prompt: `你是一位高中教学专家。请为"${topic}"这个知识点生成一棵知识树。
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是一位高中教学专家。请严格按照用户要求的 JSON 格式输出知识树结构。",
+      },
+      {
+        role: "user",
+        content: `请为"${topic}"这个知识点生成一棵知识树。
 
 要求：
 1. 生成 1 个根节点（depth=0）和 4-8 个一级子节点（depth=1）
 2. 每个节点包含：title（标题）、description（简短描述）、depth（层级）、parentTitle（父节点标题，根节点为 null）
 3. 根节点的 title 就是主题本身
 4. 子节点应该是该主题下最核心的知识点
-5. 输出格式严格按照 schema
 
-示例输出结构：
-- 根节点：title="函数", depth=0, parentTitle=null
-- 子节点：title="定义域", depth=1, parentTitle="函数"`,
+输出格式（严格 JSON）：
+{
+  "nodes": [
+    { "title": "函数", "description": "...", "depth": 0, "parentTitle": null },
+    { "title": "定义域", "description": "...", "depth": 1, "parentTitle": "函数" }
+  ]
+}`,
+      },
+    ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: false,
   });
 
-  return result.object;
+  const content = completion.choices[0].message.content || "{\"nodes\":[]}";
+  const parsed = JSON.parse(content);
+  return knowledgeTreeSchema.parse(parsed);
 }
 
 const evaluationSchema = z.object({
@@ -52,10 +67,17 @@ export async function evaluateAnswer(
   userAnswer: string,
   context: string
 ) {
-  const result = await generateObject({
-    model,
-    schema: evaluationSchema,
-    prompt: `你是一位耐心的高中学习伙伴。请评估学生对以下问题的回答。
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是一位耐心的高中学习伙伴。请严格按照 JSON 格式输出评估结果。",
+      },
+      {
+        role: "user",
+        content: `评估学生对以下问题的回答。
 
 当前主题：${topic}
 问题：${question}
@@ -72,10 +94,27 @@ export async function evaluateAnswer(
 语气要求：
 - 不要说"你错了"
 - 用"这里有个容易混淆的点"、"我们再来看看"等引导性语言
-- 要具体指出哪里有问题，不要泛泛而谈`,
+- 要具体指出哪里有问题，不要泛泛而谈
+
+输出格式（严格 JSON）：
+{
+  "isCorrect": false,
+  "confidence": 0.8,
+  "feedback": "...",
+  "missingPoints": ["..."],
+  "suggestedNodeTitle": "...",
+  "suggestedNodeContent": "..."
+}`,
+      },
+    ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: false,
   });
 
-  return result.object;
+  const content = completion.choices[0].message.content || "{}";
+  const parsed = JSON.parse(content);
+  return evaluationSchema.parse(parsed);
 }
 
 const parseSpeechSchema = z.object({
@@ -92,31 +131,52 @@ export async function parseSpeechInput(
   speechText: string,
   existingNodes: string[]
 ) {
-  const result = await generateObject({
-    model,
-    schema: parseSpeechSchema,
-    prompt: `学生正在复习"${topic}"这个知识点，他口述了以下内容：
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是一位高中教学专家。请严格按照 JSON 格式输出解析结果。",
+      },
+      {
+        role: "user",
+        content: `学生正在复习"${topic}"这个知识点，他口述了以下内容：
 
 "${speechText}"
 
 已有知识点列表：${existingNodes.join(", ")}
 
-请解析学生口述中提到的知识点，返回 mentionedTopics 数组。
+请解析学生口述中提到的知识点。
 - 只返回与"${topic}"相关的知识点
 - 如果提到的知识点已在已有列表中，也要返回（用于标记为 mentioned）
 - confidence 表示你对解析结果的置信度
-- 标题要简洁，2-6 个字`,
+- 标题要简洁，2-6 个字
+
+输出格式（严格 JSON）：
+{
+  "mentionedTopics": [
+    { "title": "定义域", "confidence": 0.95 }
+  ]
+}`,
+      },
+    ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: false,
   });
 
-  return result.object;
+  const content = completion.choices[0].message.content || "{\"mentionedTopics\":[]}";
+  const parsed = JSON.parse(content);
+  return parseSpeechSchema.parse(parsed);
 }
 
 export async function generateChatResponse(
   topic: string,
   messages: { role: "user" | "assistant"; content: string }[]
 ) {
-  const result = streamText({
-    model,
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
     messages: [
       {
         role: "system",
@@ -132,25 +192,50 @@ export async function generateChatResponse(
       },
       ...messages,
     ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: true,
   });
 
-  return result;
+  return completion;
 }
 
 export async function generateQuestion(topic: string, nodeTitle: string) {
-  const result = await generateObject({
-    model,
-    schema: z.object({
-      question: z.string(),
-      hint: z.string(),
-    }),
-    prompt: `请为"${topic}"下的"${nodeTitle}"这个知识点生成一道检验性问题。
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是一位高中教学专家。请严格按照 JSON 格式输出问题。",
+      },
+      {
+        role: "user",
+        content: `请为"${topic}"下的"${nodeTitle}"这个知识点生成一道检验性问题。
 
 要求：
 1. 问题要能检验学生是否真正理解，不是简单的定义背诵
 2. 提供一个小提示（hint），但不要直接给出答案
-3. 问题难度适中，适合高中生`,
+3. 问题难度适中，适合高中生
+
+输出格式（严格 JSON）：
+{
+  "question": "...",
+  "hint": "..."
+}`,
+      },
+    ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: false,
   });
 
-  return result.object;
+  const content = completion.choices[0].message.content || "{}";
+  const parsed = JSON.parse(content);
+  return z
+    .object({
+      question: z.string(),
+      hint: z.string(),
+    })
+    .parse(parsed);
 }
