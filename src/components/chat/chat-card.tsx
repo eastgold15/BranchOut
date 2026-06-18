@@ -15,6 +15,7 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { session, enterSubChat, returnToTree } = useSessionStore();
@@ -26,6 +27,65 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
   useEffect(() => {
     scrollToBottom();
   }, [messages, streamingContent, scrollToBottom]);
+
+  // 加载历史消息
+  useEffect(() => {
+    async function loadHistory() {
+      setIsLoadingHistory(true);
+      try {
+        const response = await fetch(`/api/messages?nodeId=${nodeId}`);
+        if (!response.ok) throw new Error("Failed to load history");
+
+        const data = await response.json();
+        const historyMessages: ChatMessageData[] = data.messages.map(
+          (m: {
+            id: string;
+            nodeId: string;
+            role: string;
+            content: string;
+            type: string;
+            spawnedNodeId: string | null;
+            timestamp: string;
+          }) => ({
+            id: m.id,
+            nodeId: m.nodeId,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            type: m.type as "text" | "correction" | "question" | "summary",
+            spawnedNodeId: m.spawnedNodeId || undefined,
+            timestamp: new Date(m.timestamp),
+          })
+        );
+
+        setMessages(historyMessages);
+      } catch (error) {
+        console.error("Failed to load chat history:", error);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    }
+
+    loadHistory();
+  }, [nodeId]);
+
+  // 保存消息到数据库
+  const saveMessage = async (message: ChatMessageData) => {
+    try {
+      await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodeId: message.nodeId,
+          role: message.role,
+          content: message.content,
+          type: message.type,
+          spawnedNodeId: message.spawnedNodeId || null,
+        }),
+      });
+    } catch (error) {
+      console.error("Failed to save message:", error);
+    }
+  };
 
   const handleSend = async () => {
     if (!input.trim() || !session) return;
@@ -43,6 +103,9 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
     setInput("");
     setIsLoading(true);
     setStreamingContent("");
+
+    // 保存用户消息
+    await saveMessage(userMessage);
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -110,6 +173,9 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
 
       setMessages((prev) => [...prev, assistantMessage]);
       setStreamingContent("");
+
+      // 保存 AI 回复
+      await saveMessage(assistantMessage);
     } catch (error) {
       if ((error as Error).name !== "AbortError") {
         console.error("Chat error:", error);
@@ -129,8 +195,9 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
 
   return (
     <div
-      className={`flex flex-col h-full bg-slate-900/95 backdrop-blur-sm ${isNested ? "rounded-lg border border-slate-700" : ""
-        }`}
+      className={`flex flex-col h-full bg-slate-900/95 backdrop-blur-sm ${
+        isNested ? "rounded-lg border border-slate-700" : ""
+      }`}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
@@ -148,7 +215,18 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.length === 0 && !isLoading && (
+        {isLoadingHistory && (
+          <div className="text-center text-slate-500 py-8">
+            <div className="flex justify-center gap-1 mb-2">
+              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
+              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:0.1s]" />
+              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:0.2s]" />
+            </div>
+            <p className="text-sm">加载历史记录...</p>
+          </div>
+        )}
+
+        {!isLoadingHistory && messages.length === 0 && !isLoading && (
           <div className="text-center text-slate-500 py-8">
             <p>开始探讨「{title}」</p>
             <p className="text-sm mt-1">你可以提问、讨论或请求解释</p>
@@ -158,16 +236,18 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
         {messages.map((message) => (
           <div
             key={message.id}
-            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
-              }`}
+            className={`flex ${
+              message.role === "user" ? "justify-end" : "justify-start"
+            }`}
           >
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === "user"
+              className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                message.role === "user"
                   ? "bg-sky-600 text-white"
                   : message.type === "correction"
-                    ? "bg-orange-900/50 border border-orange-700 text-orange-100"
-                    : "bg-slate-800 text-slate-200"
-                }`}
+                  ? "bg-orange-900/50 border border-orange-700 text-orange-100"
+                  : "bg-slate-800 text-slate-200"
+              }`}
             >
               <div className="text-sm whitespace-pre-wrap">{message.content}</div>
               {message.type === "correction" && (

@@ -132,10 +132,31 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }),
 
   returnToTree: () =>
-    set({
-      viewMode: "tree",
-      currentChatNodeId: null,
-      navigationStack: [],
+    set((state) => {
+      // 标记当前节点为 explored（已聊过）
+      const currentNodeId = state.currentChatNodeId;
+      let newNodes = state.session?.nodes;
+
+      if (currentNodeId && state.session) {
+        const node = state.session.nodes.get(currentNodeId);
+        if (node && node.status !== "mastered") {
+          newNodes = new Map(state.session.nodes);
+          newNodes.set(currentNodeId, {
+            ...node,
+            status: "explored",
+            updatedAt: new Date(),
+          });
+        }
+      }
+
+      return {
+        viewMode: "tree",
+        currentChatNodeId: null,
+        navigationStack: [],
+        session: state.session
+          ? { ...state.session, nodes: newNodes || state.session.nodes }
+          : null,
+      };
     }),
 
   setViewMode: (mode) => set({ viewMode: mode }),
