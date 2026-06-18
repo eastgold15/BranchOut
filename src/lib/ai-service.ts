@@ -4,28 +4,28 @@ import { deepseekClient } from "./deepseek-client";
 const MODEL = "deepseek-v4-pro";
 
 const knowledgeTreeSchema = z.object({
-	nodes: z.array(
-		z.object({
-			title: z.string(),
-			description: z.string(),
-			depth: z.number(),
-			parentTitle: z.string().nullable(),
-		}),
-	),
+  nodes: z.array(
+    z.object({
+      title: z.string(),
+      description: z.string(),
+      depth: z.number(),
+      parentTitle: z.string().nullable(),
+    })
+  ),
 });
 
 export async function generateKnowledgeTree(topic: string) {
-	const completion = await deepseekClient.chat.completions.create({
-		model: MODEL,
-		messages: [
-			{
-				role: "system",
-				content:
-					"你是一位高中教学专家。请严格按照用户要求的 JSON 格式输出知识树结构。",
-			},
-			{
-				role: "user",
-				content: `请为"${topic}"这个知识点生成一棵知识树。
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是一位高中教学专家。请严格按照用户要求的 JSON 格式输出知识树结构。",
+      },
+      {
+        role: "user",
+        content: `请为"${topic}"这个知识点生成一棵知识树。
 
 要求：
 1. 生成 1 个根节点（depth=0）和 4-8 个一级子节点（depth=1）
@@ -40,44 +40,44 @@ export async function generateKnowledgeTree(topic: string) {
     { "title": "定义域", "description": "...", "depth": 1, "parentTitle": "函数" }
   ]
 }`,
-			},
-		],
-		thinking: { type: "enabled" },
-		reasoning_effort: "high",
-		stream: false,
-	});
+      },
+    ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: false,
+  });
 
-	const content = completion.choices[0].message.content || '{"nodes":[]}';
-	const parsed = JSON.parse(content);
-	return knowledgeTreeSchema.parse(parsed);
+  const content = completion.choices[0].message.content || '{"nodes":[]}';
+  const parsed = JSON.parse(content);
+  return knowledgeTreeSchema.parse(parsed);
 }
 
 const evaluationSchema = z.object({
-	isCorrect: z.boolean(),
-	confidence: z.number().min(0).max(1),
-	feedback: z.string(),
-	missingPoints: z.array(z.string()),
-	suggestedNodeTitle: z.string().optional(),
-	suggestedNodeContent: z.string().optional(),
+  isCorrect: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  feedback: z.string(),
+  missingPoints: z.array(z.string()),
+  suggestedNodeTitle: z.string().optional(),
+  suggestedNodeContent: z.string().optional(),
 });
 
 export async function evaluateAnswer(
-	topic: string,
-	question: string,
-	userAnswer: string,
-	context: string,
+  topic: string,
+  question: string,
+  userAnswer: string,
+  context: string
 ) {
-	const completion = await deepseekClient.chat.completions.create({
-		model: MODEL,
-		messages: [
-			{
-				role: "system",
-				content:
-					"你是一位耐心的高中学习伙伴。请严格按照 JSON 格式输出评估结果。",
-			},
-			{
-				role: "user",
-				content: `评估学生对以下问题的回答。
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是一位耐心的高中学习伙伴。请严格按照 JSON 格式输出评估结果。",
+      },
+      {
+        role: "user",
+        content: `评估学生对以下问题的回答。
 
 当前主题：${topic}
 问题：${question}
@@ -105,42 +105,42 @@ export async function evaluateAnswer(
   "suggestedNodeTitle": "...",
   "suggestedNodeContent": "..."
 }`,
-			},
-		],
-		thinking: { type: "enabled" },
-		reasoning_effort: "high",
-		stream: false,
-	});
+      },
+    ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: false,
+  });
 
-	const content = completion.choices[0].message.content || "{}";
-	const parsed = JSON.parse(content);
-	return evaluationSchema.parse(parsed);
+  const content = completion.choices[0].message.content || "{}";
+  const parsed = JSON.parse(content);
+  return evaluationSchema.parse(parsed);
 }
 
 const parseSpeechSchema = z.object({
-	mentionedTopics: z.array(
-		z.object({
-			title: z.string(),
-			confidence: z.number().min(0).max(1),
-		}),
-	),
+  mentionedTopics: z.array(
+    z.object({
+      title: z.string(),
+      confidence: z.number().min(0).max(1),
+    })
+  ),
 });
 
 export async function parseSpeechInput(
-	topic: string,
-	speechText: string,
-	existingNodes: string[],
+  topic: string,
+  speechText: string,
+  existingNodes: string[]
 ) {
-	const completion = await deepseekClient.chat.completions.create({
-		model: MODEL,
-		messages: [
-			{
-				role: "system",
-				content: "你是一位高中教学专家。请严格按照 JSON 格式输出解析结果。",
-			},
-			{
-				role: "user",
-				content: `学生正在复习"${topic}"这个知识点，他口述了以下内容：
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content: "你是一位高中教学专家。请严格按照 JSON 格式输出解析结果。",
+      },
+      {
+        role: "user",
+        content: `学生正在复习"${topic}"这个知识点，他口述了以下内容：
 
 "${speechText}"
 
@@ -158,29 +158,29 @@ export async function parseSpeechInput(
     { "title": "定义域", "confidence": 0.95 }
   ]
 }`,
-			},
-		],
-		thinking: { type: "enabled" },
-		reasoning_effort: "high",
-		stream: false,
-	});
+      },
+    ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: false,
+  });
 
-	const content =
-		completion.choices[0].message.content || '{"mentionedTopics":[]}';
-	const parsed = JSON.parse(content);
-	return parseSpeechSchema.parse(parsed);
+  const content =
+    completion.choices[0].message.content || '{"mentionedTopics":[]}';
+  const parsed = JSON.parse(content);
+  return parseSpeechSchema.parse(parsed);
 }
 
 export async function generateChatResponse(
-	topic: string,
-	messages: { role: "user" | "assistant"; content: string }[],
+  topic: string,
+  messages: { role: "user" | "assistant"; content: string }[]
 ) {
-	const completion = await deepseekClient.chat.completions.create({
-		model: MODEL,
-		messages: [
-			{
-				role: "system",
-				content: `你是一位耐心的高中学习伙伴，正在帮助学生复习"${topic}"这个知识点。
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content: `你是一位耐心的高中学习伙伴，正在帮助学生复习"${topic}"这个知识点。
 
 角色设定：
 - 你不是考官，而是帮助发现漏洞的伙伴
@@ -189,28 +189,28 @@ export async function generateChatResponse(
 - 回答要简洁，适合高中生理解
 - 可以主动提问检验掌握程度
 - 如果学生理解有偏差，创建纠正内容`,
-			},
-			...messages,
-		],
-		thinking: { type: "enabled" },
-		reasoning_effort: "high",
-		stream: true,
-	});
+      },
+      ...messages,
+    ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: true,
+  });
 
-	return completion;
+  return completion;
 }
 
 export async function generateQuestion(topic: string, nodeTitle: string) {
-	const completion = await deepseekClient.chat.completions.create({
-		model: MODEL,
-		messages: [
-			{
-				role: "system",
-				content: "你是一位高中教学专家。请严格按照 JSON 格式输出问题。",
-			},
-			{
-				role: "user",
-				content: `请为"${topic}"下的"${nodeTitle}"这个知识点生成一道检验性问题。
+  const completion = await deepseekClient.chat.completions.create({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content: "你是一位高中教学专家。请严格按照 JSON 格式输出问题。",
+      },
+      {
+        role: "user",
+        content: `请为"${topic}"下的"${nodeTitle}"这个知识点生成一道检验性问题。
 
 要求：
 1. 问题要能检验学生是否真正理解，不是简单的定义背诵
@@ -222,19 +222,19 @@ export async function generateQuestion(topic: string, nodeTitle: string) {
   "question": "...",
   "hint": "..."
 }`,
-			},
-		],
-		thinking: { type: "enabled" },
-		reasoning_effort: "high",
-		stream: false,
-	});
+      },
+    ],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    stream: false,
+  });
 
-	const content = completion.choices[0].message.content || "{}";
-	const parsed = JSON.parse(content);
-	return z
-		.object({
-			question: z.string(),
-			hint: z.string(),
-		})
-		.parse(parsed);
+  const content = completion.choices[0].message.content || "{}";
+  const parsed = JSON.parse(content);
+  return z
+    .object({
+      question: z.string(),
+      hint: z.string(),
+    })
+    .parse(parsed);
 }
