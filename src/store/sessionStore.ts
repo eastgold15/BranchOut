@@ -1,34 +1,34 @@
 import { create } from "zustand";
 import type {
-  KnowledgeSession,
-  TopicNodeData,
   ChatMessageData,
-  ViewMode,
+  KnowledgeSession,
   NavigationStackItem,
   NodeStatus,
+  TopicNodeData,
+  ViewMode,
 } from "@/types";
 
 interface SessionState {
-  session: KnowledgeSession | null;
-  viewMode: ViewMode;
-  navigationStack: NavigationStackItem[];
+  addMessage: (message: ChatMessageData) => void;
+  addNode: (node: TopicNodeData) => void;
+  clearSession: () => void;
   currentChatNodeId: string | null;
-  isLoading: boolean;
+  enterChat: (nodeId: string, title: string) => void;
+  enterSubChat: (nodeId: string, title: string) => void;
   error: string | null;
+  goBack: () => void;
+  isLoading: boolean;
+  navigationStack: NavigationStackItem[];
+  returnToTree: () => void;
+  session: KnowledgeSession | null;
+  setError: (error: string | null) => void;
+  setLoading: (loading: boolean) => void;
 
   // Actions
   setSession: (session: KnowledgeSession) => void;
-  addNode: (node: TopicNodeData) => void;
-  updateNodeStatus: (nodeId: string, status: NodeStatus) => void;
-  addMessage: (message: ChatMessageData) => void;
-  enterChat: (nodeId: string, title: string) => void;
-  enterSubChat: (nodeId: string, title: string) => void;
-  goBack: () => void;
-  returnToTree: () => void;
   setViewMode: (mode: ViewMode) => void;
-  setLoading: (loading: boolean) => void;
-  setError: (error: string | null) => void;
-  clearSession: () => void;
+  updateNodeStatus: (nodeId: string, status: NodeStatus) => void;
+  viewMode: ViewMode;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -50,7 +50,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   addNode: (node) =>
     set((state) => {
-      if (!state.session) return state;
+      if (!state.session) {
+        return state;
+      }
       const newNodes = new Map(state.session.nodes);
       newNodes.set(node.id, node);
 
@@ -75,9 +77,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   updateNodeStatus: (nodeId, status) =>
     set((state) => {
-      if (!state.session) return state;
+      if (!state.session) {
+        return state;
+      }
       const node = state.session.nodes.get(nodeId);
-      if (!node) return state;
+      if (!node) {
+        return state;
+      }
 
       const newNodes = new Map(state.session.nodes);
       newNodes.set(nodeId, { ...node, status, updatedAt: new Date() });
@@ -93,7 +99,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   addMessage: (message) =>
     set((state) => {
-      if (!state.session) return state;
+      if (!state.session) {
+        return state;
+      }
       return {
         session: {
           ...state.session,

@@ -1,18 +1,15 @@
+import { nanoid } from "nanoid";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { sessions, topicNodes } from "@/db/schema";
 import { generateKnowledgeTree } from "@/lib/ai-service";
-import { nanoid } from "nanoid";
 
 export async function POST(request: Request) {
   try {
     const { topic } = await request.json();
 
     if (!topic || typeof topic !== "string") {
-      return NextResponse.json(
-        { error: "Topic is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Topic is required" }, { status: 400 });
     }
 
     // Generate knowledge tree with AI
@@ -51,12 +48,16 @@ export async function POST(request: Request) {
 
     // Create child nodes
     for (const node of treeData.nodes) {
-      if (node.depth === 0) continue; // Skip root if AI returned one
+      if (node.depth === 0) {
+        continue; // Skip root if AI returned one
+      }
 
       const nodeId = nanoid();
       nodeMap.set(node.title, nodeId);
 
-      const parentId = node.parentTitle ? nodeMap.get(node.parentTitle) : rootNodeId;
+      const parentId = node.parentTitle
+        ? nodeMap.get(node.parentTitle)
+        : rootNodeId;
 
       nodes.push({
         id: nodeId,

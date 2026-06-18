@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
-import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
-import { TreeNode } from "./tree-node";
-import { TreeEdge } from "./tree-edge";
+import { Canvas } from "@react-three/fiber";
+import { useCallback, useMemo } from "react";
 import { useSessionStore } from "@/store/sessionStore";
 import type { TopicNodeData } from "@/types";
+import { TreeEdge } from "./tree-edge";
+import { TreeNode } from "./tree-node";
 
 function calculateNodePositions(
   nodes: Map<string, TopicNodeData>
@@ -14,7 +14,9 @@ function calculateNodePositions(
   const positions = new Map<string, [number, number, number]>();
   const rootNode = Array.from(nodes.values()).find((n) => n.depth === 0);
 
-  if (!rootNode) return positions;
+  if (!rootNode) {
+    return positions;
+  }
 
   positions.set(rootNode.id, [0, 0, 0]);
 
@@ -23,7 +25,7 @@ function calculateNodePositions(
     if (!nodesByDepth.has(node.depth)) {
       nodesByDepth.set(node.depth, []);
     }
-    nodesByDepth.get(node.depth)!.push(node);
+    nodesByDepth.get(node.depth)?.push(node);
   });
 
   const maxDepth = Math.max(...nodesByDepth.keys());
@@ -49,7 +51,9 @@ function TreeScene() {
   const { session, enterChat } = useSessionStore();
 
   const nodePositions = useMemo(() => {
-    if (!session) return new Map();
+    if (!session) {
+      return new Map();
+    }
     return calculateNodePositions(session.nodes);
   }, [session?.nodes]);
 
@@ -60,7 +64,9 @@ function TreeScene() {
     [enterChat]
   );
 
-  if (!session) return null;
+  if (!session) {
+    return null;
+  }
 
   const nodes = Array.from(session.nodes.values());
   const edges: { from: string; to: string }[] = [];
@@ -74,21 +80,23 @@ function TreeScene() {
   return (
     <>
       <ambientLight intensity={0.5} />
-      <pointLight position={[10, 10, 10]} intensity={1} />
-      <pointLight position={[-10, -10, -10]} intensity={0.5} color="#38bdf8" />
+      <pointLight intensity={1} position={[10, 10, 10]} />
+      <pointLight color="#38bdf8" intensity={0.5} position={[-10, -10, -10]} />
 
-      <Stars radius={100} depth={50} count={5000} factor={4} fade speed={1} />
+      <Stars count={5000} depth={50} factor={4} fade radius={100} speed={1} />
 
       {nodes.map((node) => {
         const position = nodePositions.get(node.id);
-        if (!position) return null;
+        if (!position) {
+          return null;
+        }
 
         return (
           <TreeNode
             key={node.id}
             node={node}
-            position={position}
             onClick={() => handleNodeClick(node.id, node.title)}
+            position={position}
           />
         );
       })}
@@ -96,17 +104,19 @@ function TreeScene() {
       {edges.map((edge, index) => {
         const fromPos = nodePositions.get(edge.from);
         const toPos = nodePositions.get(edge.to);
-        if (!fromPos || !toPos) return null;
+        if (!(fromPos && toPos)) {
+          return null;
+        }
 
-        return <TreeEdge key={index} from={fromPos} to={toPos} />;
+        return <TreeEdge from={fromPos} key={index} to={toPos} />;
       })}
 
       <OrbitControls
         enablePan={true}
-        enableZoom={true}
         enableRotate={true}
-        minDistance={5}
+        enableZoom={true}
         maxDistance={50}
+        minDistance={5}
       />
     </>
   );
@@ -114,7 +124,7 @@ function TreeScene() {
 
 export function KnowledgeTree() {
   return (
-    <div className="w-full h-screen bg-slate-950">
+    <div className="h-screen w-full bg-slate-950">
       <Canvas camera={{ position: [0, 5, 15], fov: 60 }}>
         <TreeScene />
       </Canvas>

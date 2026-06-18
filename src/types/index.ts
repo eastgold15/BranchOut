@@ -1,49 +1,54 @@
-export type NodeStatus = "untouched" | "mentioned" | "explored" | "mastered" | "weak";
+export type NodeStatus =
+  | "untouched"
+  | "mentioned"
+  | "explored"
+  | "mastered"
+  | "weak";
 export type MessageRole = "user" | "assistant";
 export type MessageType = "text" | "correction" | "question" | "summary";
 export type NodeSource = "ai-init" | "user-mention" | "ai-correction";
 export type SessionStatus = "active" | "completed" | "archived";
 
 export interface TopicNodeData {
-  id: string;
-  title: string;
-  content: string;
-  parentId: string | null;
   children: string[];
-  depth: number;
-  status: NodeStatus;
-  source: NodeSource;
+  content: string;
   createdAt: Date;
+  depth: number;
+  id: string;
+  parentId: string | null;
+  source: NodeSource;
+  status: NodeStatus;
+  title: string;
   updatedAt: Date;
 }
 
 export interface ChatMessageData {
+  content: string;
   id: string;
   nodeId: string;
   role: MessageRole;
-  content: string;
-  type: MessageType;
   spawnedNodeId?: string;
   timestamp: Date;
+  type: MessageType;
 }
 
 export interface KnowledgeSession {
+  createdAt: Date;
+  currentFocusNodeId: string | null;
   id: string;
-  rootTopic: string;
-  status: SessionStatus;
   nodes: Map<string, TopicNodeData>;
   rootNodeId: string;
-  currentFocusNodeId: string | null;
-  createdAt: Date;
+  rootTopic: string;
+  status: SessionStatus;
   updatedAt: Date;
 }
 
 export interface TreeRenderNode {
+  depth: number;
   id: string;
-  title: string;
   position: [number, number, number];
   status: NodeStatus;
-  depth: number;
+  title: string;
 }
 
 export interface TreeRenderEdge {

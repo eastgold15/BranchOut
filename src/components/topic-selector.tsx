@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useSessionStore } from "@/store/sessionStore";
 import type { KnowledgeSession, TopicNodeData } from "@/types";
-import { nanoid } from "nanoid";
 
 export function TopicSelector() {
   const [topic, setTopic] = useState("");
@@ -12,7 +11,9 @@ export function TopicSelector() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!topic.trim()) return;
+    if (!topic.trim()) {
+      return;
+    }
 
     setIsLoading(true);
     setLoading(true);
@@ -57,40 +58,42 @@ export function TopicSelector() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">查漏补缺</h1>
-          <p className="text-slate-400">用 AI 构建你的知识树，发现每一个薄弱点</p>
+    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
+      <div className="w-full max-w-md">
+        <div className="mb-8 text-center">
+          <h1 className="mb-2 font-bold text-4xl text-white">查漏补缺</h1>
+          <p className="text-slate-400">
+            用 AI 构建你的知识树，发现每一个薄弱点
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form className="space-y-4" onSubmit={handleSubmit}>
           <div>
             <label
+              className="mb-2 block font-medium text-slate-300 text-sm"
               htmlFor="topic"
-              className="block text-sm font-medium text-slate-300 mb-2"
             >
               今天想复习什么知识点？
             </label>
             <input
-              type="text"
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-white placeholder-slate-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-sky-500"
+              disabled={isLoading}
               id="topic"
-              value={topic}
               onChange={(e) => setTopic(e.target.value)}
               placeholder="例如：函数、三角函数、牛顿定律..."
-              className="w-full bg-slate-900 border border-slate-700 text-white placeholder-slate-500 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-              disabled={isLoading}
+              type="text"
+              value={topic}
             />
           </div>
 
           <button
-            type="submit"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 py-3 font-medium text-white transition-colors hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500"
             disabled={!topic.trim() || isLoading}
-            className="w-full bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+            type="submit"
           >
             {isLoading ? (
               <>
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 正在生成知识树...
               </>
             ) : (
@@ -100,7 +103,7 @@ export function TopicSelector() {
         </form>
 
         <div className="mt-8 text-center">
-          <p className="text-xs text-slate-600">
+          <p className="text-slate-600 text-xs">
             输入一个知识点主题，AI 会为你生成知识树并引导你复习
           </p>
         </div>

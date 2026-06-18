@@ -1,7 +1,7 @@
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { chatMessages } from "@/db/schema";
-import { eq } from "drizzle-orm";
 
 // GET /api/messages?nodeId=xxx
 export async function GET(request: Request) {
@@ -37,21 +37,24 @@ export async function POST(request: Request) {
   try {
     const { nodeId, role, content, type, spawnedNodeId } = await request.json();
 
-    if (!nodeId || !role || !content) {
+    if (!(nodeId && role && content)) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
     }
 
-    const result = await db.insert(chatMessages).values({
-      id: crypto.randomUUID(),
-      nodeId,
-      role,
-      content,
-      type: type || "text",
-      spawnedNodeId: spawnedNodeId || null,
-    }).returning();
+    const result = await db
+      .insert(chatMessages)
+      .values({
+        id: crypto.randomUUID(),
+        nodeId,
+        role,
+        content,
+        type: type || "text",
+        spawnedNodeId: spawnedNodeId || null,
+      })
+      .returning();
 
     return NextResponse.json({ message: result[0] });
   } catch (error) {

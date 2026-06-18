@@ -34,6 +34,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "type-check": "npx tsc --noEmit",
     "check": "ultracite check",
     "fix": "ultracite fix",
     "prepare": "lefthook install"

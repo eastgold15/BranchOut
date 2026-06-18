@@ -1,8 +1,8 @@
 "use client";
 
-import { TopicSelector } from "@/components/topic-selector";
-import { KnowledgeTree } from "@/components/knowledge-tree/knowledge-tree";
 import { NestedChatView } from "@/components/chat/nested-chat-view";
+import { KnowledgeTree } from "@/components/knowledge-tree/knowledge-tree";
+import { TopicSelector } from "@/components/topic-selector";
 import { useSessionStore } from "@/store/sessionStore";
 
 export default function Home() {
@@ -10,13 +10,13 @@ export default function Home() {
 
   return (
     <main className="relative">
-      {!session ? (
-        <TopicSelector />
-      ) : (
+      {session ? (
         <>
           <KnowledgeTree />
           {viewMode === "chat" && currentChatNodeId && <NestedChatView />}
         </>
+      ) : (
+        <TopicSelector />
       )}
     </main>
   );

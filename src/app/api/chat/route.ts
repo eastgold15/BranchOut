@@ -7,11 +7,11 @@ export async function POST(request: Request) {
   try {
     const { topic, nodeTitle, messages } = await request.json();
 
-    if (!topic || !messages || !Array.isArray(messages)) {
-      return new Response(
-        JSON.stringify({ error: "Invalid request" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+    if (!(topic && messages && Array.isArray(messages))) {
+      return new Response(JSON.stringify({ error: "Invalid request" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const completion = await generateChatResponse(topic, messages);

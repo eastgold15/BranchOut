@@ -4,5 +4,8 @@
     "ultracite/biome/react",
     "ultracite/biome/next"
   ],
-  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json"
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "files": {
+    "includes": ["!cha-lou-bu-que-prd"]
+  }
 }

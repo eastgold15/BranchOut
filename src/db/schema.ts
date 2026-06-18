@@ -1,5 +1,5 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),

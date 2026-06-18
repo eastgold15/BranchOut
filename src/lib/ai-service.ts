@@ -1,5 +1,5 @@
-import { deepseekClient } from "./deepseek-client";
 import { z } from "zod";
+import { deepseekClient } from "./deepseek-client";
 
 const MODEL = "deepseek-v4-pro";
 
@@ -47,7 +47,7 @@ export async function generateKnowledgeTree(topic: string) {
     stream: false,
   });
 
-  const content = completion.choices[0].message.content || "{\"nodes\":[]}";
+  const content = completion.choices[0].message.content || '{"nodes":[]}';
   const parsed = JSON.parse(content);
   return knowledgeTreeSchema.parse(parsed);
 }
@@ -136,8 +136,7 @@ export async function parseSpeechInput(
     messages: [
       {
         role: "system",
-        content:
-          "你是一位高中教学专家。请严格按照 JSON 格式输出解析结果。",
+        content: "你是一位高中教学专家。请严格按照 JSON 格式输出解析结果。",
       },
       {
         role: "user",
@@ -166,7 +165,8 @@ export async function parseSpeechInput(
     stream: false,
   });
 
-  const content = completion.choices[0].message.content || "{\"mentionedTopics\":[]}";
+  const content =
+    completion.choices[0].message.content || '{"mentionedTopics":[]}';
   const parsed = JSON.parse(content);
   return parseSpeechSchema.parse(parsed);
 }
@@ -206,8 +206,7 @@ export async function generateQuestion(topic: string, nodeTitle: string) {
     messages: [
       {
         role: "system",
-        content:
-          "你是一位高中教学专家。请严格按照 JSON 格式输出问题。",
+        content: "你是一位高中教学专家。请严格按照 JSON 格式输出问题。",
       },
       {
         role: "user",

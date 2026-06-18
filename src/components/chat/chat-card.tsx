@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionStore } from "@/store/sessionStore";
 import type { ChatMessageData } from "@/types";
 
 interface ChatCardProps {
+  isNested?: boolean;
   nodeId: string;
   title: string;
-  isNested?: boolean;
 }
 
 export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
@@ -34,7 +34,9 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
       setIsLoadingHistory(true);
       try {
         const response = await fetch(`/api/messages?nodeId=${nodeId}`);
-        if (!response.ok) throw new Error("Failed to load history");
+        if (!response.ok) {
+          throw new Error("Failed to load history");
+        }
 
         const data = await response.json();
         const historyMessages: ChatMessageData[] = data.messages.map(
@@ -88,7 +90,9 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
   };
 
   const handleSend = async () => {
-    if (!input.trim() || !session) return;
+    if (!(input.trim() && session)) {
+      return;
+    }
 
     const userMessage: ChatMessageData = {
       id: Date.now().toString(),
@@ -125,26 +129,36 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
         signal: abortController.signal,
       });
 
-      if (!response.ok) throw new Error("Failed to get response");
+      if (!response.ok) {
+        throw new Error("Failed to get response");
+      }
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response body");
+      if (!reader) {
+        throw new Error("No response body");
+      }
 
       const decoder = new TextDecoder();
       let fullContent = "";
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          break;
+        }
 
         const text = decoder.decode(value, { stream: true });
         const lines = text.split("\n");
 
         for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
+          if (!line.startsWith("data: ")) {
+            continue;
+          }
           const data = line.slice(6).trim();
 
-          if (data === "[DONE]") continue;
+          if (data === "[DONE]") {
+            continue;
+          }
 
           try {
             const parsed = JSON.parse(data);
@@ -195,69 +209,71 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
 
   return (
     <div
-      className={`flex flex-col h-full bg-slate-900/95 backdrop-blur-sm ${
+      className={`flex h-full flex-col bg-slate-900/95 backdrop-blur-sm ${
         isNested ? "rounded-lg border border-slate-700" : ""
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+      <div className="flex items-center justify-between border-slate-700 border-b px-4 py-3">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-sky-400" />
-          <h3 className="text-white font-medium">{title}</h3>
+          <div className="h-2 w-2 rounded-full bg-sky-400" />
+          <h3 className="font-medium text-white">{title}</h3>
         </div>
         <button
+          className="text-slate-400 text-sm transition-colors hover:text-white"
           onClick={returnToTree}
-          className="text-slate-400 hover:text-white text-sm transition-colors"
         >
           回到主线
         </button>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {isLoadingHistory && (
-          <div className="text-center text-slate-500 py-8">
-            <div className="flex justify-center gap-1 mb-2">
-              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
-              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:0.1s]" />
-              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:0.2s]" />
+          <div className="py-8 text-center text-slate-500">
+            <div className="mb-2 flex justify-center gap-1">
+              <div className="h-2 w-2 animate-bounce rounded-full bg-slate-400" />
+              <div className="h-2 w-2 animate-bounce rounded-full bg-slate-400 [animation-delay:0.1s]" />
+              <div className="h-2 w-2 animate-bounce rounded-full bg-slate-400 [animation-delay:0.2s]" />
             </div>
             <p className="text-sm">加载历史记录...</p>
           </div>
         )}
 
         {!isLoadingHistory && messages.length === 0 && !isLoading && (
-          <div className="text-center text-slate-500 py-8">
+          <div className="py-8 text-center text-slate-500">
             <p>开始探讨「{title}」</p>
-            <p className="text-sm mt-1">你可以提问、讨论或请求解释</p>
+            <p className="mt-1 text-sm">你可以提问、讨论或请求解释</p>
           </div>
         )}
 
         {messages.map((message) => (
           <div
-            key={message.id}
             className={`flex ${
               message.role === "user" ? "justify-end" : "justify-start"
             }`}
+            key={message.id}
           >
             <div
               className={`max-w-[80%] rounded-2xl px-4 py-3 ${
                 message.role === "user"
                   ? "bg-sky-600 text-white"
                   : message.type === "correction"
-                  ? "bg-orange-900/50 border border-orange-700 text-orange-100"
-                  : "bg-slate-800 text-slate-200"
+                    ? "border border-orange-700 bg-orange-900/50 text-orange-100"
+                    : "bg-slate-800 text-slate-200"
               }`}
             >
-              <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+              <div className="whitespace-pre-wrap text-sm">
+                {message.content}
+              </div>
               {message.type === "correction" && (
                 <button
+                  className="mt-2 rounded-full bg-orange-700 px-3 py-1 text-white text-xs transition-colors hover:bg-orange-600"
                   onClick={() => {
                     if (message.spawnedNodeId) {
                       enterSubChat(message.spawnedNodeId, "深入探讨");
                     }
                   }}
-                  className="mt-2 text-xs bg-orange-700 hover:bg-orange-600 text-white px-3 py-1 rounded-full transition-colors"
                 >
                   深入了解
                 </button>
@@ -269,20 +285,22 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
         {/* 流式输出中的内容 */}
         {streamingContent && (
           <div className="flex justify-start">
-            <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-slate-800 text-slate-200">
-              <div className="text-sm whitespace-pre-wrap">{streamingContent}</div>
-              <span className="inline-block w-1.5 h-4 bg-sky-400 animate-pulse ml-0.5 align-text-bottom" />
+            <div className="max-w-[80%] rounded-2xl bg-slate-800 px-4 py-3 text-slate-200">
+              <div className="whitespace-pre-wrap text-sm">
+                {streamingContent}
+              </div>
+              <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-sky-400 align-text-bottom" />
             </div>
           </div>
         )}
 
         {!streamingContent && isLoading && (
           <div className="flex justify-start">
-            <div className="bg-slate-800 rounded-2xl px-4 py-3">
+            <div className="rounded-2xl bg-slate-800 px-4 py-3">
               <div className="flex gap-1">
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:0.1s]" />
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:0.2s]" />
+                <div className="h-2 w-2 animate-bounce rounded-full bg-slate-400" />
+                <div className="h-2 w-2 animate-bounce rounded-full bg-slate-400 [animation-delay:0.1s]" />
+                <div className="h-2 w-2 animate-bounce rounded-full bg-slate-400 [animation-delay:0.2s]" />
               </div>
             </div>
           </div>
@@ -292,20 +310,20 @@ export function ChatCard({ nodeId, title, isNested = false }: ChatCardProps) {
       </div>
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-slate-700">
+      <div className="border-slate-700 border-t px-4 py-3">
         <div className="flex gap-2">
           <input
-            type="text"
-            value={input}
+            className="flex-1 rounded-lg bg-slate-800 px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="输入消息..."
-            className="flex-1 bg-slate-800 text-white placeholder-slate-500 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            type="text"
+            value={input}
           />
           <button
-            onClick={handleSend}
+            className="rounded-lg bg-sky-600 px-4 py-2 font-medium text-sm text-white transition-colors hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500"
             disabled={!input.trim() || isLoading}
-            className="bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            onClick={handleSend}
           >
             发送
           </button>
