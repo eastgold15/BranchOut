@@ -6,12 +6,10 @@
   ],
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "files": {
-    "includes": ["!cha-lou-bu-que-prd"]
+    "includes": ["!cha-lou-bu-que-prd", "!.next"]
   },
   "linter": {
-    "enabled": true,
     "rules": {
-      "recommended": true,
       "complexity": {
         "noExcessiveCognitiveComplexity": "off"
       },
