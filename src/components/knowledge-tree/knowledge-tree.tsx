@@ -3,58 +3,20 @@
 import { OrbitControls, Stars } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { useCallback, useMemo } from "react";
+import * as THREE from "three";
+import { generateTreeModel } from "@/lib/tree-generator";
 import { useSessionStore } from "@/store/sessionStore";
-import type { TopicNodeData } from "@/types";
-import { TreeEdge } from "./tree-edge";
+import { Branch } from "./branch";
 import { TreeNode } from "./tree-node";
-
-function calculateNodePositions(
-  nodes: Map<string, TopicNodeData>
-): Map<string, [number, number, number]> {
-  const positions = new Map<string, [number, number, number]>();
-  const rootNode = Array.from(nodes.values()).find((n) => n.depth === 0);
-
-  if (!rootNode) {
-    return positions;
-  }
-
-  positions.set(rootNode.id, [0, 0, 0]);
-
-  const nodesByDepth = new Map<number, TopicNodeData[]>();
-  for (const node of nodes.values()) {
-    if (!nodesByDepth.has(node.depth)) {
-      nodesByDepth.set(node.depth, []);
-    }
-    nodesByDepth.get(node.depth)?.push(node);
-  }
-
-  const maxDepth = Math.max(...nodesByDepth.keys());
-  const radiusStep = 3;
-
-  for (let depth = 1; depth <= maxDepth; depth++) {
-    const depthNodes = nodesByDepth.get(depth) || [];
-    const radius = depth * radiusStep;
-
-    for (const [index, node] of depthNodes.entries()) {
-      const angle = (index / Math.max(depthNodes.length, 1)) * Math.PI * 2;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      const y = -depth * 1.5;
-      positions.set(node.id, [x, y, z]);
-    }
-  }
-
-  return positions;
-}
 
 function TreeScene() {
   const { session, enterChat } = useSessionStore();
 
-  const nodePositions = useMemo(() => {
+  const treeData = useMemo(() => {
     if (!session) {
-      return new Map();
+      return null;
     }
-    return calculateNodePositions(session.nodes);
+    return generateTreeModel(session.nodes);
   }, [session]);
 
   const handleNodeClick = useCallback(
@@ -64,61 +26,60 @@ function TreeScene() {
     [enterChat]
   );
 
-  if (!session) {
+  if (!(treeData && session)) {
     return null;
-  }
-
-  const nodes = Array.from(session.nodes.values());
-  const edges: { from: string; to: string }[] = [];
-
-  for (const node of nodes) {
-    if (node.parentId) {
-      edges.push({ from: node.parentId, to: node.id });
-    }
   }
 
   return (
     <>
-      <ambientLight intensity={0.5} />
-      <pointLight intensity={1} position={[10, 10, 10]} />
-      <pointLight color="#38bdf8" intensity={0.5} position={[-10, -10, -10]} />
+      {/* 环境光 */}
+      <ambientLight intensity={0.4} />
+      <pointLight intensity={1.2} position={[8, 12, 8]} />
+      <pointLight color="#38bdf8" intensity={0.4} position={[-8, 5, -8]} />
+      <pointLight color="#a78bfa" intensity={0.3} position={[0, -3, 5]} />
 
-      <Stars count={5000} depth={50} factor={4} fade radius={100} speed={1} />
+      {/* 星空背景 */}
+      <Stars count={3000} depth={60} factor={3} fade radius={80} speed={0.5} />
 
-      {nodes.map((node) => {
-        const position = nodePositions.get(node.id);
-        if (!position) {
-          return null;
-        }
+      {/* 树枝 */}
+      {treeData.branches.map((branch) => (
+        <Branch
+          depth={branch.depth}
+          end={branch.end}
+          key={`${branch.start.x}-${branch.start.y}-${branch.start.z}`}
+          start={branch.start}
+          thickness={branch.thickness}
+        />
+      ))}
 
-        return (
-          <TreeNode
-            key={node.id}
-            node={node}
-            onClick={() => handleNodeClick(node.id, node.title)}
-            position={position}
-          />
-        );
-      })}
+      {/* 知识节点（球体） */}
+      {treeData.nodePositions.map((item) => (
+        <TreeNode
+          key={item.id}
+          node={item.node}
+          onClick={() => handleNodeClick(item.id, item.node.title)}
+          position={item.position}
+        />
+      ))}
 
-      {edges.map((edge) => {
-        const fromPos = nodePositions.get(edge.from);
-        const toPos = nodePositions.get(edge.to);
-        if (!(fromPos && toPos)) {
-          return null;
-        }
-
-        return (
-          <TreeEdge from={fromPos} key={`${edge.from}-${edge.to}`} to={toPos} />
-        );
-      })}
+      {/* 地面参考光圈 */}
+      <mesh position={[0, -6.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[1.5, 3, 64]} />
+        <meshBasicMaterial
+          color="#38bdf8"
+          opacity={0.08}
+          side={THREE.DoubleSide}
+          transparent
+        />
+      </mesh>
 
       <OrbitControls
         enablePan={true}
         enableRotate={true}
         enableZoom={true}
-        maxDistance={50}
+        maxDistance={35}
         minDistance={5}
+        target={[0, 0, 0]}
       />
     </>
   );
@@ -127,7 +88,10 @@ function TreeScene() {
 export function KnowledgeTree() {
   return (
     <div className="h-screen w-full bg-slate-950">
-      <Canvas camera={{ position: [0, 5, 15], fov: 60 }}>
+      <Canvas
+        camera={{ position: [0, 2, 14], fov: 55 }}
+        gl={{ antialias: true, alpha: true }}
+      >
         <TreeScene />
       </Canvas>
     </div>

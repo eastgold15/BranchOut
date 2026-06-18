@@ -11,7 +11,8 @@
   "linter": {
     "rules": {
       "complexity": {
-        "noExcessiveCognitiveComplexity": "off"
+        "noExcessiveCognitiveComplexity": "off",
+        "noVoid": "off"
       },
       "style": {
         "noNestedTernary": "off",
