@@ -6,18 +6,18 @@ import { TopicSelector } from "@/components/topic-selector";
 import { useSessionStore } from "@/store/sessionStore";
 
 export default function Home() {
-  const { session, viewMode, currentChatNodeId } = useSessionStore();
+	const { session, viewMode, currentChatNodeId } = useSessionStore();
 
-  return (
-    <main className="relative">
-      {session ? (
-        <>
-          <KnowledgeTree />
-          {viewMode === "chat" && currentChatNodeId && <NestedChatView />}
-        </>
-      ) : (
-        <TopicSelector />
-      )}
-    </main>
-  );
+	return (
+		<main className="relative">
+			{session ? (
+				<>
+					<KnowledgeTree />
+					{viewMode === "chat" && currentChatNodeId && <NestedChatView />}
+				</>
+			) : (
+				<TopicSelector />
+			)}
+		</main>
+	);
 }

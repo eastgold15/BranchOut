@@ -1,11 +1,28 @@
 {
-  "extends": [
-    "ultracite/biome/core",
-    "ultracite/biome/react",
-    "ultracite/biome/next"
-  ],
-  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "files": {
-    "includes": ["!cha-lou-bu-que-prd"]
-  }
+	"extends": [
+		"ultracite/biome/core",
+		"ultracite/biome/react",
+		"ultracite/biome/next"
+	],
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"files": {
+		"includes": ["!cha-lou-bu-que-prd"]
+	},
+  "linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"complexity": {
+				"noExcessiveCognitiveComplexity": "off"
+			},
+			"style": {
+				"noNestedTernary": "off",
+				"useFilenamingConvention": "off"
+			},
+			"performance": {
+				"noNamespaceImport": "off",
+				"noBarrelFile": "off"
+			}
+		}
+	}
 }
