@@ -1,16 +1,16 @@
 "use client";
 
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, Stars } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { embeddingService } from "@/lib/embedding-service";
 import { useSessionStore } from "@/store/sessionStore";
-import { Branch } from "./branch";
+import { ConstellationEdge } from "./constellation-edge";
 import { Fireflies } from "./fireflies";
-import { TreeNode } from "./tree-node";
+import { PlanetNode } from "./planet-node";
 
-function TreeScene() {
+function ConstellationScene() {
   const { session, enterChat, currentViewType } = useSessionStore();
   const [modelReady, setModelReady] = useState(false);
 
@@ -29,7 +29,7 @@ function TreeScene() {
     };
   }, [session]);
 
-  const treeLayout = useMemo(() => {
+  const constellationLayout = useMemo(() => {
     if (!(session && modelReady)) {
       return null;
     }
@@ -49,49 +49,43 @@ function TreeScene() {
     return embeddingService.buildTree(topics, viewEmbedding);
   }, [session, modelReady, currentViewType]);
 
-  const treeModel = useMemo(() => {
-    if (!(treeLayout && session)) {
+  const constellationModel = useMemo(() => {
+    if (!(constellationLayout && session)) {
       return null;
     }
 
     const nodePositions = new Map<string, THREE.Vector3>();
-    for (const node of treeLayout.nodes) {
+    for (const node of constellationLayout.nodes) {
       nodePositions.set(
         node.id,
         new THREE.Vector3(node.position[0], node.position[1], node.position[2])
       );
     }
 
-    const branches: Array<{
-      start: THREE.Vector3;
-      end: THREE.Vector3;
-      thickness: number;
-      weight: number;
-      depth: number;
+    const edges: Array<{
+      from: THREE.Vector3;
+      to: THREE.Vector3;
+      fromId: string;
+      toId: string;
     }> = [];
 
-    for (const edge of treeLayout.edges) {
+    for (const edge of constellationLayout.edges) {
       const fromPos = nodePositions.get(edge.from);
       const toPos = nodePositions.get(edge.to);
       if (!(fromPos && toPos)) {
         continue;
       }
 
-      const fromNode = session.nodes.get(edge.from);
-      const depth = fromNode?.depth ?? 0;
-      const thickness = 0.015 + (edge.weight || 0.5) * 0.04;
-
-      branches.push({
-        start: fromPos.clone(),
-        end: toPos.clone(),
-        thickness,
-        weight: edge.weight || 0.5,
-        depth,
+      edges.push({
+        from: fromPos.clone(),
+        to: toPos.clone(),
+        fromId: edge.from,
+        toId: edge.to,
       });
     }
 
-    return { nodePositions, branches, nodes: treeLayout.nodes };
-  }, [treeLayout, session]);
+    return { nodePositions, edges, nodes: constellationLayout.nodes };
+  }, [constellationLayout, session]);
 
   const handleNodeClick = useCallback(
     (nodeId: string, title: string) => {
@@ -100,63 +94,62 @@ function TreeScene() {
     [enterChat]
   );
 
-  if (!(treeModel && session)) {
+  if (!(constellationModel && session)) {
     return null;
   }
 
   return (
     <>
-      {/* 暗色森林背景 */}
-      <color args={["#0A1A0F"]} attach="background" />
-      <fog args={["#0A1A0F", 8, 30]} attach="fog" />
+      {/* 深空背景 */}
+      <color args={["#050814"]} attach="background" />
+      <fog args={["#050814", 15, 45]} attach="fog" />
 
-      {/* 月光（顶光 - 冷白） */}
-      <directionalLight color="#E2E8F0" intensity={0.6} position={[0, 20, 0]} />
-      {/* 月光辅助补光 */}
+      {/* 星空粒子背景 */}
+      <Stars
+        count={3000}
+        depth={50}
+        factor={3}
+        fade
+        radius={80}
+        saturation={0}
+        speed={0.5}
+      />
+
+      {/* 环境光（极弱，让星球自身发光更突出） */}
+      <ambientLight color="#1a2040" intensity={0.08} />
+
+      {/* 远处恒星光照 */}
       <directionalLight
-        color="#94A3B8"
-        intensity={0.25}
-        position={[-8, 15, -8]}
+        color="#b8c5e8"
+        intensity={0.4}
+        position={[10, 20, 10]}
       />
-
-      {/* 琥珀底光（暖橙上照） */}
-      <pointLight
-        color="#F97316"
-        distance={30}
-        intensity={0.8}
-        position={[0, -8, 0]}
+      <directionalLight
+        color="#6b7db3"
+        intensity={0.15}
+        position={[-10, -5, -10]}
       />
-
-      {/* 环境光（极弱轮廓） */}
-      <ambientLight color="#1A3A2A" intensity={0.15} />
 
       {/* 萤火虫粒子 */}
-      <Fireflies count={80} />
+      <Fireflies count={60} />
 
-      {/* 藤蔓 */}
-      {treeModel.branches.map((branch, i) => (
-        <Branch
-          depth={branch.depth}
-          end={branch.end}
-          key={`branch-${i}`}
-          start={branch.start}
-          thickness={branch.thickness}
-          weight={branch.weight}
-        />
+      {/* 星座连线 */}
+      {constellationModel.edges.map((edge, i) => (
+        <ConstellationEdge from={edge.from} key={`edge-${i}`} to={edge.to} />
       ))}
 
-      {/* 节点 */}
-      {treeModel.nodes.map((node) => {
+      {/* 星球节点 */}
+      {constellationModel.nodes.map((node) => {
         const nodeData = session.nodes.get(node.id);
         if (!nodeData) {
           return null;
         }
-        const pos = treeModel.nodePositions.get(node.id);
+        const pos = constellationModel.nodePositions.get(node.id);
         if (!pos) {
           return null;
         }
         return (
-          <TreeNode
+          <PlanetNode
             key={node.id}
             node={nodeData}
             onClick={() => handleNodeClick(node.id, node.title)}
@@ -169,8 +162,8 @@ function TreeScene() {
         enablePan={true}
         enableRotate={true}
         enableZoom={true}
-        maxDistance={40}
-        minDistance={4}
+        maxDistance={50}
+        minDistance={3}
         target={[0, 0, 0]}
       />
     </>
@@ -179,12 +172,12 @@ function TreeScene() {
 
 export function KnowledgeTree() {
   return (
-    <div className="h-screen w-full bg-slate-50">
+    <div className="h-screen w-full bg-slate-950">
       <Canvas
-        camera={{ position: [0, 2, 14], fov: 55 }}
+        camera={{ position: [0, 2, 16], fov: 55 }}
         gl={{ antialias: true, alpha: true }}
       >
-        <TreeScene />
+        <ConstellationScene />
       </Canvas>
     </div>
   );

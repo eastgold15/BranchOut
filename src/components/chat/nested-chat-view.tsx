@@ -273,37 +273,11 @@ export function NestedChatView() {
     scrollToBottom();
   }, [scrollToBottom]);
 
-  // ── 构建话题树 ──────────────────────────────────────
+  // ── 构建话题树（展示所有会话节点，即使没有消息） ──────
   const topicTree = useMemo(() => {
-    if (!(session && allMessages.length > 0)) {
+    if (!session) {
       return [];
     }
-
-    // 先找所有的 spawnedNodeId 关系
-    const spawned = new Map<string, string>(); // spawnedNodeId → parent message id
-    const parentTopicOfSpawned = new Map<string, string>(); // spawnedNodeId → parent nodeId
-    for (const msg of allMessages) {
-      if (msg.spawnedNodeId) {
-        spawned.set(msg.spawnedNodeId, msg.id);
-        parentTopicOfSpawned.set(msg.spawnedNodeId, msg.nodeId);
-      }
-    }
-
-    // 收集所有话题 ID，按首次出现排序
-    const seen = new Set<string>();
-    const topicOrder: string[] = [];
-    for (const msg of allMessages) {
-      if (!seen.has(msg.nodeId)) {
-        seen.add(msg.nodeId);
-        topicOrder.push(msg.nodeId);
-      }
-    }
-
-    // 把有父话题的子话题标记出来
-    const childTopics = new Set(spawned.keys());
-
-    // 顶层话题（没有 spawn parent 的）
-    const rootTopicIds = topicOrder.filter((id) => !childTopics.has(id));
 
     // 按消息分组
     const msgsByTopic = new Map<string, ChatMessageData[]>();
@@ -314,20 +288,41 @@ export function NestedChatView() {
       msgsByTopic.get(msg.nodeId)!.push(msg);
     }
 
+    // 收集 spawned 关系
+    const parentTopicOfSpawned = new Map<string, string>();
+    for (const msg of allMessages) {
+      if (msg.spawnedNodeId) {
+        parentTopicOfSpawned.set(msg.spawnedNodeId, msg.nodeId);
+      }
+    }
+    const childTopicIds = new Set(parentTopicOfSpawned.keys());
+
+    // 按 depth 排序
+    const sortedNodes = Array.from(session.nodes.entries()).sort((a, b) => {
+      const depthDiff = (a[1].depth ?? 0) - (b[1].depth ?? 0);
+      if (depthDiff !== 0) {
+        return depthDiff;
+      }
+      return a[1].createdAt.getTime() - b[1].createdAt.getTime();
+    });
+
+    // 顶层节点（未被 spawn 的）
+    const rootNodes = sortedNodes.filter(([id]) => !childTopicIds.has(id));
+
     function buildSubTopics(parentNodeId: string) {
       const children: Array<{
         messages: ChatMessageData[];
         nodeId: string;
         title: string;
       }> = [];
-      for (const [spawnedId] of spawned) {
-        if (parentTopicOfSpawned.get(spawnedId) === parentNodeId) {
-          const node = session?.nodes.get(spawnedId);
+      for (const [id, pId] of parentTopicOfSpawned) {
+        if (pId === parentNodeId) {
+          const node = session!.nodes.get(id);
           if (node) {
             children.push({
-              nodeId: spawnedId,
+              nodeId: id,
               title: node.title,
-              messages: msgsByTopic.get(spawnedId) || [],
+              messages: msgsByTopic.get(id) || [],
             });
           }
         }
@@ -335,29 +330,12 @@ export function NestedChatView() {
       return children;
     }
 
-    return rootTopicIds
-      .map((id) => {
-        const node = session?.nodes.get(id);
-        if (!node) {
-          return null;
-        }
-        return {
-          nodeId: id,
-          title: node.title,
-          messages: msgsByTopic.get(id) || [],
-          subTopics: buildSubTopics(id),
-        };
-      })
-      .filter(Boolean) as Array<{
-      messages: ChatMessageData[];
-      nodeId: string;
-      subTopics: Array<{
-        messages: ChatMessageData[];
-        nodeId: string;
-        title: string;
-      }>;
-      title: string;
-    }>;
+    return rootNodes.map(([id, node]) => ({
+      nodeId: id,
+      title: node.title,
+      messages: msgsByTopic.get(id) || [],
+      subTopics: buildSubTopics(id),
+    }));
   }, [allMessages, session]);
 
   // ── 发送消息 ────────────────────────────────────────
