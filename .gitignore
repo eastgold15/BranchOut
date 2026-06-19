@@ -45,3 +45,7 @@ bun.lock
 
 # brainstorming artifacts
 .superpowers/
+public/models/Crystal.glb
+public/models/Dragonfly.glb
+public/models/Orange.glb
+public/models/Tall Grass.glb
