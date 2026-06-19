@@ -12,21 +12,16 @@ interface TreeNodeProps {
   position: THREE.Vector3;
 }
 
-/* 亮色系状态颜色 */
-const statusColors: Record<string, string> = {
-  untouched: "#94a3b8",
-  mentioned: "#0ea5e9",
-  explored: "#8b5cf6",
-  mastered: "#10b981",
-  weak: "#f43f5e",
-};
-
-const statusGlow: Record<string, string> = {
-  untouched: "#cbd5e1",
-  mentioned: "#bae6fd",
-  explored: "#ddd6fe",
-  mastered: "#a7f3d0",
-  weak: "#fecdd3",
+/* 暗色森林 - 果实发光状态色 */
+const fruitColors: Record<
+  string,
+  { shell: string; core: string; ring: string }
+> = {
+  untouched: { shell: "#5C6B4F", core: "#2D3A28", ring: "" },
+  mentioned: { shell: "#34D399", core: "#6EE7B7", ring: "" },
+  explored: { shell: "#A78BFA", core: "#C4B5FD", ring: "#A78BFA" },
+  mastered: { shell: "#FCD34D", core: "#FDE68A", ring: "#FCD34D" },
+  weak: { shell: "#FB7185", core: "#FDA4AF", ring: "" },
 };
 
 // 根据节点深度计算大小
@@ -35,10 +30,25 @@ function getNodeScale(depth: number): number {
   return Math.max(baseScale * (1 - depth * 0.08), baseScale * 0.65);
 }
 
+// 轻柔 billboard —— 让果实微微朝向 camera
+function gentleLookAt(obj: THREE.Object3D, camera: THREE.Camera, lerp = 0.04) {
+  const target = new THREE.Vector3();
+  target.copy(camera.position);
+  obj.parent?.localToWorld(target.clone());
+  const q = new THREE.Quaternion();
+  obj.quaternion.slerp(
+    q.setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1),
+      target.clone().sub(obj.position).normalize()
+    ),
+    lerp
+  );
+}
+
 export function TreeNode({ node, position, onClick }: TreeNodeProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const crystalRef = useRef<THREE.Mesh>(null);
-  const glowRef = useRef<THREE.Mesh>(null);
+  const outerShellRef = useRef<THREE.Mesh>(null);
+  const coreRef = useRef<THREE.Mesh>(null);
   const ringRef = useRef<THREE.Mesh>(null);
   const floatRef = useRef({
     offset: Math.random() * Math.PI * 2,
@@ -52,8 +62,7 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
   const basePosition = useMemo(() => position.clone(), [position]);
   const nodeScale = useMemo(() => getNodeScale(node.depth ?? 0), [node.depth]);
 
-  const color = statusColors[node.status] || statusColors.untouched;
-  const glowColor = statusGlow[node.status] || statusGlow.untouched;
+  const colors = fruitColors[node.status] || fruitColors.untouched;
 
   useFrame((state) => {
     if (!groupRef.current) {
@@ -64,25 +73,24 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
     const float = floatRef.current;
     const floatY = Math.sin(time * float.speed + float.offset) * float.amp;
 
-    // 水晶缓慢旋转
-    if (crystalRef.current) {
-      crystalRef.current.rotation.y = time * 0.3 + node.depth;
-      crystalRef.current.rotation.x = Math.sin(time * 0.2 + node.depth) * 0.2;
-    }
-
     const dist = camera.position.distanceTo(basePosition);
     const minDist = 5;
     const maxDist = 25;
     const t =
       1 - Math.min(Math.max((dist - minDist) / (maxDist - minDist), 0), 1);
 
-    // 柔和光晕脉冲
-    if (glowRef.current) {
-      const pulse = Math.sin(time * 2 + node.depth * 0.7) * 0.1 + 0.3;
-      const scale = hovered ? 2.0 : 1.4 + pulse;
-      glowRef.current.scale.setScalar(scale);
-      const mat = glowRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = hovered ? 0.35 : 0.18 * t;
+    // 核心呼吸脉冲 (emissiveIntensity)
+    if (coreRef.current) {
+      const pulse = Math.sin(time * 1.5 + float.offset) * 0.3 + 0.7;
+      const mat = coreRef.current.material as THREE.MeshPhysicalMaterial;
+      mat.emissiveIntensity = hovered ? pulse * 1.5 : pulse * 0.8 * t;
+    }
+
+    // 外层微弱的 emissive 跟随核心
+    if (outerShellRef.current) {
+      const shellMat = outerShellRef.current
+        .material as THREE.MeshPhysicalMaterial;
+      shellMat.opacity = 0.15 + t * 0.2;
     }
 
     // 旋转光环动画（仅在 explored/mastered 状态）
@@ -92,6 +100,9 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
     ) {
       ringRef.current.rotation.z = time * 0.6;
       ringRef.current.rotation.x = Math.sin(time * 0.4) * 0.3;
+      // 光环脉冲透明度
+      const ringMat = ringRef.current.material as THREE.MeshBasicMaterial;
+      ringMat.opacity = 0.3 + Math.sin(time * 1.2 + float.offset) * 0.15;
     }
 
     // 磁性吸附 + 浮动
@@ -113,11 +124,14 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
     } else {
       groupRef.current.position.lerp(targetPos, 0.08);
     }
+
+    // 果实微微朝向 camera（轻柔 billboard）
+    gentleLookAt(groupRef.current, camera);
   });
 
   return (
     <group position={basePosition} ref={groupRef}>
-      {/* 水晶主体 - 八面体 */}
+      {/* 果实外壳 — 极薄半透明 */}
       <mesh
         onClick={(e) => {
           e.stopPropagation();
@@ -133,59 +147,52 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
           setHovered(true);
           document.body.style.cursor = "pointer";
         }}
-        ref={crystalRef}
+        ref={outerShellRef}
       >
-        <octahedronGeometry args={[nodeScale, 0]} />
+        <sphereGeometry args={[nodeScale, 24, 24]} />
         <meshPhysicalMaterial
-          clearcoat={1}
-          clearcoatRoughness={0.05}
-          color={color}
-          envMapIntensity={1.5}
-          ior={2.4}
-          metalness={0.05}
-          opacity={0.9}
-          roughness={0.02}
-          thickness={1.2}
-          transmission={0.55}
-          transparent
-        />
-        {/* 水晶线框切面 - 随父级一起旋转 */}
-        <mesh>
-          <octahedronGeometry args={[nodeScale * 1.01, 0]} />
-          <meshBasicMaterial
-            color="#ffffff"
-            opacity={0.15}
-            transparent
-            wireframe
-          />
-        </mesh>
-      </mesh>
-
-      {/* 柔和光晕 */}
-      <mesh ref={glowRef}>
-        <sphereGeometry args={[nodeScale * 1.3, 16, 16]} />
-        <meshBasicMaterial
-          color={glowColor}
-          depthWrite={false}
-          opacity={0.18}
+          color={colors.shell}
+          emissive={colors.core}
+          emissiveIntensity={0.05}
+          envMapIntensity={0.5}
+          ior={1.8}
+          metalness={0.0}
+          opacity={0.25}
+          roughness={0.3}
+          thickness={0.5}
+          transmission={0.6}
           transparent
         />
       </mesh>
 
-      {/* 已探索/已掌握状态的光环 */}
+      {/* 发光核心 — 内部小 30% 强自发光 */}
+      <mesh ref={coreRef}>
+        <sphereGeometry args={[nodeScale * 0.7, 16, 16]} />
+        <meshPhysicalMaterial
+          color={colors.core}
+          emissive={colors.core}
+          emissiveIntensity={2.0}
+          metalness={0.0}
+          opacity={0.85}
+          roughness={0.1}
+          transparent
+        />
+      </mesh>
+
+      {/* 已探索/已掌握状态的旋转光环 */}
       {(node.status === "explored" || node.status === "mastered") && (
         <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[nodeScale * 1.8, 0.02, 8, 48]} />
+          <torusGeometry args={[nodeScale * 1.6, 0.015, 8, 48]} />
           <meshBasicMaterial
-            color={node.status === "mastered" ? "#34d399" : "#a78bfa"}
+            color={colors.ring}
             depthWrite={false}
-            opacity={0.5}
+            opacity={0.4}
             transparent
           />
         </mesh>
       )}
 
-      {/* 文字标签 - 纯文字无框 */}
+      {/* 文字标签 */}
       <Html
         center
         distanceFactor={14}
@@ -195,10 +202,10 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
         <div
           className="whitespace-nowrap text-center font-bold text-sm transition-all duration-200"
           style={{
-            color: hovered ? color : "#334155",
+            color: hovered ? colors.shell : "#9CA3AF",
             textShadow: hovered
-              ? `0 0 10px ${glowColor}, 0 0 20px ${glowColor}`
-              : `0 1px 3px rgba(255,255,255,0.9), 0 0 6px ${glowColor}`,
+              ? `0 0 10px ${colors.core}, 0 0 20px ${colors.core}`
+              : "0 1px 3px rgba(0,0,0,0.8)",
             transform: hovered ? "scale(1.2) translateY(-2px)" : "scale(1)",
             letterSpacing: "0.03em",
           }}

@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { embeddingService } from "@/lib/embedding-service";
 import { useSessionStore } from "@/store/sessionStore";
 import { Branch } from "./branch";
+import { Fireflies } from "./fireflies";
 import { TreeNode } from "./tree-node";
 
 function TreeScene() {
@@ -105,23 +106,34 @@ function TreeScene() {
 
   return (
     <>
-      <color args={["#f8fafc"]} attach="background" />
-      <fog args={["#f1f5f9", 15, 50]} attach="fog" />
+      {/* 暗色森林背景 */}
+      <color args={["#0A1A0F"]} attach="background" />
+      <fog args={["#0A1A0F", 8, 30]} attach="fog" />
 
-      <ambientLight intensity={0.7} />
+      {/* 月光（顶光 - 冷白） */}
+      <directionalLight color="#E2E8F0" intensity={0.6} position={[0, 20, 0]} />
+      {/* 月光辅助补光 */}
       <directionalLight
-        color="#ffffff"
-        intensity={1.2}
-        position={[10, 15, 10]}
+        color="#94A3B8"
+        intensity={0.25}
+        position={[-8, 15, -8]}
       />
-      <directionalLight
-        color="#e2e8f0"
-        intensity={0.5}
-        position={[-8, 5, -8]}
-      />
-      <pointLight color="#cbd5e1" intensity={0.8} position={[0, -5, 5]} />
 
-      {/* 边 */}
+      {/* 琥珀底光（暖橙上照） */}
+      <pointLight
+        color="#F97316"
+        distance={30}
+        intensity={0.8}
+        position={[0, -8, 0]}
+      />
+
+      {/* 环境光（极弱轮廓） */}
+      <ambientLight color="#1A3A2A" intensity={0.15} />
+
+      {/* 萤火虫粒子 */}
+      <Fireflies count={80} />
+
+      {/* 藤蔓 */}
       {treeModel.branches.map((branch, i) => (
         <Branch
           depth={branch.depth}

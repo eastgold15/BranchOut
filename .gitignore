@@ -42,3 +42,6 @@ next-env.d.ts
 sqlite.db
 bun.lock
 bun.lock
+
+# brainstorming artifacts
+.superpowers/
