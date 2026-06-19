@@ -30,7 +30,6 @@ const PLANET_MODELS = [
   "/models/planets/Planet2.glb",
   "/models/planets/Planet3.glb",
   "/models/planets/Planet4.glb",
-  "/models/planets/Planet5.glb",
 ];
 
 function getNodeScale(depth: number): number {
@@ -386,7 +385,7 @@ export function PlanetNode({ node, position, onClick }: PlanetNodeProps) {
       <Html
         center
         distanceFactor={14}
-        position={[0, nodeScale + 0.5, 0]}
+        position={[0, nodeScale * 0.9 + 0.08, 0]}
         style={{ pointerEvents: "none" }}
       >
         <div
