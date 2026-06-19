@@ -1,9 +1,10 @@
 "use client";
 
-import { Html, useGLTF } from "@react-three/drei";
+import { Html } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { TopicNodeData } from "@/types";
 
 interface TreeNodeProps {
@@ -29,8 +30,45 @@ function getNodeScale(depth: number): number {
   return Math.max(baseScale * (1 - depth * 0.08), baseScale * 0.65);
 }
 
+// ── 模型缓存（只加载一次，所有节点共享） ──────────────
+let orangeCachedScene: THREE.Group | null = null;
+let modelLoading = false;
+const loadQueue: Array<(scene: THREE.Group | null) => void> = [];
+
+function loadOrangeModel(cb: (scene: THREE.Group | null) => void) {
+  if (orangeCachedScene) {
+    cb(orangeCachedScene);
+    return;
+  }
+  loadQueue.push(cb);
+  if (modelLoading) {
+    return;
+  }
+  modelLoading = true;
+  const loader = new GLTFLoader();
+  loader.load(
+    "/models/Orange.glb",
+    (gltf) => {
+      orangeCachedScene = gltf.scene;
+      for (const queued of loadQueue) {
+        queued(orangeCachedScene);
+      }
+      loadQueue.length = 0;
+    },
+    undefined,
+    () => {
+      modelLoading = false;
+      for (const queued of loadQueue) {
+        queued(null);
+      }
+      loadQueue.length = 0;
+    }
+  );
+}
+
 export function TreeNode({ node, position, onClick }: TreeNodeProps) {
   const groupRef = useRef<THREE.Group>(null);
+  const outerShellRef = useRef<THREE.Mesh>(null);
   const coreRef = useRef<THREE.Mesh>(null);
   const ringRef = useRef<THREE.Mesh>(null);
   const floatRef = useRef({
@@ -39,6 +77,7 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
     amp: 0.05 + Math.random() * 0.05,
   });
   const [hovered, setHovered] = useState(false);
+  const [modelScene, setModelScene] = useState<THREE.Group | null>(null);
   const { camera } = useThree();
 
   const pointerWorld = useRef(new THREE.Vector3());
@@ -46,12 +85,25 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
   const nodeScale = useMemo(() => getNodeScale(node.depth ?? 0), [node.depth]);
   const colors = fruitColors[node.status] || fruitColors.untouched;
 
-  // 加载 3D 模型（R3F 缓存，只加载一次）
-  const { scene: orangeScene } = useGLTF("/models/Orange.glb");
+  // ── 异步加载模型 ──────────────────────────────
+  useEffect(() => {
+    let mounted = true;
+    loadOrangeModel((scene) => {
+      if (mounted && scene) {
+        setModelScene(scene);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-  // 克隆并缩放模型，每个节点独立实例
+  // ── 模型克隆 + 材质设置 ──────────────────────
   const modelClone = useMemo(() => {
-    const clone = orangeScene.clone(true);
+    if (!modelScene) {
+      return null;
+    }
+    const clone = modelScene.clone(true);
     const s = nodeScale * 0.48;
     clone.scale.set(s, s, s);
     clone.rotation.set(
@@ -60,7 +112,6 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
       Math.random() * 0.2
     );
 
-    // 克隆材质以便每个节点独立控制 emissive
     clone.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.material = child.material.clone();
@@ -72,9 +123,9 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
     });
 
     return clone;
-  }, [orangeScene, nodeScale]);
+  }, [modelScene, nodeScale]);
 
-  // 模型内所有 Mesh 引用缓存（避免每帧 traverse）
+  // ── 模型的 mesh 引用（避免每帧 traverse） ────
   const modelMeshes = useMemo(() => {
     if (!modelClone) {
       return [];
@@ -102,13 +153,19 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
     const dist = camera.position.distanceTo(basePosition);
     const t = 1 - Math.min(Math.max((dist - 5) / 20, 0), 1);
 
-    // 核心 + 模型 同步呼吸脉冲
+    // 呼吸脉冲
     const pulse = Math.sin(time * 1.5 + float.offset) * 0.3 + 0.7;
 
-    // 发光核心
+    // 核心发光
     if (coreRef.current) {
       const mat = coreRef.current.material as THREE.MeshBasicMaterial;
       mat.opacity = (hovered ? pulse * 1.2 : pulse * 0.6) * t;
+    }
+
+    // 外壳跟随距离淡入
+    if (outerShellRef.current) {
+      const mat = outerShellRef.current.material as THREE.MeshPhysicalMaterial;
+      mat.opacity = 0.15 + t * 0.2;
     }
 
     // 模型 emissive 跟随核心
@@ -150,33 +207,73 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
     }
   });
 
+  const hasModel = modelScene !== null;
+
   return (
     <group position={basePosition} ref={groupRef}>
-      {/* Orange 3D 模型 */}
-      {modelClone && <primitive object={modelClone} />}
+      {/* Orange 3D 模型（加载完成后显示） */}
+      {hasModel && modelClone && <primitive object={modelClone} />}
 
-      {/* 透明点击区域 */}
-      <mesh
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
-        onPointerOut={(e) => {
-          e.stopPropagation();
-          setHovered(false);
-          document.body.style.cursor = "auto";
-        }}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          setHovered(true);
-          document.body.style.cursor = "pointer";
-        }}
-      >
-        <sphereGeometry args={[nodeScale * 0.42, 8, 8]} />
-        <meshBasicMaterial depthWrite={false} opacity={0} transparent />
-      </mesh>
+      {/* 球体回退（模型加载前显示） */}
+      {!hasModel && (
+        <mesh
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+          onPointerOut={(e) => {
+            e.stopPropagation();
+            setHovered(false);
+            document.body.style.cursor = "auto";
+          }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            setHovered(true);
+            document.body.style.cursor = "pointer";
+          }}
+          ref={outerShellRef}
+        >
+          <sphereGeometry args={[nodeScale, 24, 24]} />
+          <meshPhysicalMaterial
+            color={colors.shell}
+            emissive={colors.core}
+            emissiveIntensity={0.05}
+            envMapIntensity={0.5}
+            ior={1.8}
+            metalness={0.0}
+            opacity={0.25}
+            roughness={0.3}
+            thickness={0.5}
+            transmission={0.6}
+            transparent
+          />
+        </mesh>
+      )}
 
-      {/* 内部发光核心 */}
+      {/* 透明点击区域（模型模式下用） */}
+      {hasModel && (
+        <mesh
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+          onPointerOut={(e) => {
+            e.stopPropagation();
+            setHovered(false);
+            document.body.style.cursor = "auto";
+          }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            setHovered(true);
+            document.body.style.cursor = "pointer";
+          }}
+        >
+          <sphereGeometry args={[nodeScale * 0.42, 8, 8]} />
+          <meshBasicMaterial depthWrite={false} opacity={0} transparent />
+        </mesh>
+      )}
+
+      {/* 发光核心 */}
       <mesh ref={coreRef}>
         <sphereGeometry args={[nodeScale * 0.15, 12, 12]} />
         <meshBasicMaterial

@@ -1,18 +1,14 @@
 "use client";
 
-import { OrbitControls, useGLTF } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { embeddingService } from "@/lib/embedding-service";
 import { useSessionStore } from "@/store/sessionStore";
 import { Branch } from "./branch";
 import { Fireflies } from "./fireflies";
 import { TreeNode } from "./tree-node";
-
-// 预加载模型
-useGLTF.preload("/models/Orange.glb");
-useGLTF.preload("/models/Crystal.glb");
 
 function TreeScene() {
   const { session, enterChat, currentViewType } = useSessionStore();
@@ -188,9 +184,7 @@ export function KnowledgeTree() {
         camera={{ position: [0, 2, 14], fov: 55 }}
         gl={{ antialias: true, alpha: true }}
       >
-        <Suspense fallback={null}>
-          <TreeScene />
-        </Suspense>
+        <TreeScene />
       </Canvas>
     </div>
   );
