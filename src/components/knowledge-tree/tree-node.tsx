@@ -35,6 +35,37 @@ let orangeCachedScene: THREE.Group | null = null;
 let modelLoading = false;
 const loadQueue: Array<(scene: THREE.Group | null) => void> = [];
 
+/** 归一化模型：将 mesh 顶点居中到原点并缩放到单位尺寸，避免场景变换被覆盖 */
+function normalizeModel(scene: THREE.Group): THREE.Group {
+  const box = new THREE.Box3().setFromObject(scene);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const scale = maxDim > 0 ? 1 / maxDim : 1;
+
+  scene.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      const geo = child.geometry;
+      const posAttr = geo.attributes.position;
+      for (let i = 0; i < posAttr.count; i++) {
+        const x = posAttr.getX(i) - center.x;
+        const y = posAttr.getY(i) - center.y;
+        const z = posAttr.getZ(i) - center.z;
+        posAttr.setXYZ(i, x * scale, y * scale, z * scale);
+      }
+      posAttr.needsUpdate = true;
+      geo.computeVertexNormals();
+    }
+  });
+
+  // 重置场景变换，确保后续 clone 的 scale 设置有效
+  scene.position.set(0, 0, 0);
+  scene.scale.set(1, 1, 1);
+  scene.rotation.set(0, 0, 0);
+
+  return scene;
+}
+
 function loadOrangeModel(cb: (scene: THREE.Group | null) => void) {
   if (orangeCachedScene) {
     cb(orangeCachedScene);
@@ -50,14 +81,15 @@ function loadOrangeModel(cb: (scene: THREE.Group | null) => void) {
     "/models/Orange.glb",
     (gltf) => {
       console.log("Orange model loaded:", gltf);
-      orangeCachedScene = gltf.scene;
+      orangeCachedScene = normalizeModel(gltf.scene);
       for (const queued of loadQueue) {
         queued(orangeCachedScene);
       }
       loadQueue.length = 0;
     },
     undefined,
-    () => {
+    (err) => {
+      console.error("Orange model load failed:", err);
       modelLoading = false;
       for (const queued of loadQueue) {
         queued(null);
@@ -90,7 +122,7 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
   useEffect(() => {
     let mounted = true;
     loadOrangeModel((scene) => {
-      if (mounted && scene) {
+      if (mounted) {
         setModelScene(scene);
       }
     });
@@ -105,7 +137,8 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
       return null;
     }
     const clone = modelScene.clone(true);
-    const s = nodeScale * 0.48;
+    // 模型已在 normalizeModel 中缩放到单位尺寸，这里用 nodeScale 控制最终大小
+    const s = nodeScale * 0.6;
     clone.scale.set(s, s, s);
     clone.rotation.set(
       Math.random() * 0.4,
@@ -208,12 +241,31 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
     }
   });
 
-  const hasModel = modelScene !== null;
+  const hasModel = modelClone !== null;
 
   return (
     <group position={basePosition} ref={groupRef}>
       {/* Orange 3D 模型（加载完成后显示） */}
-      {hasModel && modelClone && <primitive object={modelClone} />}
+      {hasModel && (
+        <group
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+          onPointerOut={(e) => {
+            e.stopPropagation();
+            setHovered(false);
+            document.body.style.cursor = "auto";
+          }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            setHovered(true);
+            document.body.style.cursor = "pointer";
+          }}
+        >
+          <primitive object={modelClone} />
+        </group>
+      )}
 
       {/* 球体回退 — 实心发光，清晰可见（模型加载前/失败时显示） */}
       {!hasModel && (
@@ -244,29 +296,6 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
             roughness={0.3}
             transparent
           />
-        </mesh>
-      )}
-
-      {/* 透明点击区域（模型模式下用） */}
-      {hasModel && (
-        <mesh
-          onClick={(e) => {
-            e.stopPropagation();
-            onClick();
-          }}
-          onPointerOut={(e) => {
-            e.stopPropagation();
-            setHovered(false);
-            document.body.style.cursor = "auto";
-          }}
-          onPointerOver={(e) => {
-            e.stopPropagation();
-            setHovered(true);
-            document.body.style.cursor = "pointer";
-          }}
-        >
-          <sphereGeometry args={[nodeScale * 0.5, 8, 8]} />
-          <meshBasicMaterial depthWrite={false} opacity={0} transparent />
         </mesh>
       )}
 
