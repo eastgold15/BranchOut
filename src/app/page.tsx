@@ -78,7 +78,7 @@ export default function Home() {
             </div>
 
             {/* Tab 提示 */}
-            <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2">
+            <div className="absolute top-6 left-1/2 z-20 -translate-x-1/2">
               <span className="rounded-full bg-slate-900/80 px-4 py-2 text-slate-400 text-xs shadow-black/20 shadow-lg backdrop-blur-md">
                 松开 Tab 关闭知识树 · 点击节点进入话题聊天
               </span>

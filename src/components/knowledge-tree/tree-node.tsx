@@ -49,6 +49,7 @@ function loadOrangeModel(cb: (scene: THREE.Group | null) => void) {
   loader.load(
     "/models/Orange.glb",
     (gltf) => {
+      console.log("Orange model loaded:", gltf);
       orangeCachedScene = gltf.scene;
       for (const queued of loadQueue) {
         queued(orangeCachedScene);
