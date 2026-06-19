@@ -303,7 +303,15 @@ export function NestedChatView() {
       if (depthDiff !== 0) {
         return depthDiff;
       }
-      return a[1].createdAt.getTime() - b[1].createdAt.getTime();
+      const aTime =
+        typeof a[1].createdAt === "string"
+          ? new Date(a[1].createdAt).getTime()
+          : a[1].createdAt.getTime();
+      const bTime =
+        typeof b[1].createdAt === "string"
+          ? new Date(b[1].createdAt).getTime()
+          : b[1].createdAt.getTime();
+      return aTime - bTime;
     });
 
     // 顶层节点（未被 spawn 的）
