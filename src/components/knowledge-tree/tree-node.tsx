@@ -156,16 +156,16 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
     // 呼吸脉冲
     const pulse = Math.sin(time * 1.5 + float.offset) * 0.3 + 0.7;
 
-    // 核心发光
+    // 核心发光（始终显示）
     if (coreRef.current) {
       const mat = coreRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = (hovered ? pulse * 1.2 : pulse * 0.6) * t;
+      mat.opacity = (hovered ? pulse * 1.2 : pulse * 0.6) * Math.max(t, 0.3);
     }
 
-    // 外壳跟随距离淡入
+    // 外壳发光脉冲
     if (outerShellRef.current) {
-      const mat = outerShellRef.current.material as THREE.MeshPhysicalMaterial;
-      mat.opacity = 0.15 + t * 0.2;
+      const mat = outerShellRef.current.material as THREE.MeshStandardMaterial;
+      mat.emissiveIntensity = 0.3 + pulse * 0.5;
     }
 
     // 模型 emissive 跟随核心
@@ -214,7 +214,7 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
       {/* Orange 3D 模型（加载完成后显示） */}
       {hasModel && modelClone && <primitive object={modelClone} />}
 
-      {/* 球体回退（模型加载前显示） */}
+      {/* 球体回退 — 实心发光，清晰可见（模型加载前/失败时显示） */}
       {!hasModel && (
         <mesh
           onClick={(e) => {
@@ -234,17 +234,13 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
           ref={outerShellRef}
         >
           <sphereGeometry args={[nodeScale, 24, 24]} />
-          <meshPhysicalMaterial
+          <meshStandardMaterial
             color={colors.shell}
             emissive={colors.core}
-            emissiveIntensity={0.05}
-            envMapIntensity={0.5}
-            ior={1.8}
-            metalness={0.0}
-            opacity={0.25}
+            emissiveIntensity={0.5}
+            metalness={0.1}
+            opacity={0.85}
             roughness={0.3}
-            thickness={0.5}
-            transmission={0.6}
             transparent
           />
         </mesh>
@@ -268,18 +264,18 @@ export function TreeNode({ node, position, onClick }: TreeNodeProps) {
             document.body.style.cursor = "pointer";
           }}
         >
-          <sphereGeometry args={[nodeScale * 0.42, 8, 8]} />
+          <sphereGeometry args={[nodeScale * 0.5, 8, 8]} />
           <meshBasicMaterial depthWrite={false} opacity={0} transparent />
         </mesh>
       )}
 
       {/* 发光核心 */}
       <mesh ref={coreRef}>
-        <sphereGeometry args={[nodeScale * 0.15, 12, 12]} />
+        <sphereGeometry args={[nodeScale * 0.5, 16, 16]} />
         <meshBasicMaterial
           color={colors.core}
           depthWrite={false}
-          opacity={0.5}
+          opacity={0.6}
           transparent
         />
       </mesh>
