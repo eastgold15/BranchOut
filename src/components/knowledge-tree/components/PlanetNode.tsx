@@ -4,145 +4,24 @@ import { Html } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { TopicNodeData } from "@/types";
+import { getNodeScale, planetColors } from "../constants/planet-colors";
+import { getPlanetForNode, loadPlanetModel } from "../utils/model-loader";
+import { NebulaShell } from "./NebulaShell";
 
 interface PlanetNodeProps {
+  isGalaxy?: boolean;
   node: TopicNodeData;
   onClick: () => void;
   position: THREE.Vector3;
 }
 
-/* 星座主题 - 星球发光状态色 */
-const planetColors: Record<
-  string,
-  { shell: string; core: string; ring: string }
-> = {
-  untouched: { shell: "#5C6B4F", core: "#2D3A28", ring: "" },
-  mentioned: { shell: "#34D399", core: "#6EE7B7", ring: "" },
-  explored: { shell: "#A78BFA", core: "#C4B5FD", ring: "#A78BFA" },
-  mastered: { shell: "#FCD34D", core: "#FDE68A", ring: "#FCD34D" },
-  weak: { shell: "#FB7185", core: "#FDA4AF", ring: "" },
-};
-
-const PLANET_MODELS = [
-  "/models/planets/Planet1.glb",
-  "/models/planets/Planet2.glb",
-  "/models/planets/Planet3.glb",
-  "/models/planets/Planet4.glb",
-];
-
-function getNodeScale(depth: number): number {
-  const baseScale = 0.42;
-  return Math.max(baseScale * (1 - depth * 0.08), baseScale * 0.65);
-}
-
-/** 为每个节点 ID 分配一个固定的随机星球 */
-function getPlanetForNode(nodeId: string): string {
-  let hash = 0;
-  for (let i = 0; i < nodeId.length; i++) {
-    hash = Math.abs(hash * 31 + nodeId.charCodeAt(i));
-  }
-  const index = hash % PLANET_MODELS.length;
-  return PLANET_MODELS[index];
-}
-
-// ── 模型缓存 ──────────────
-const modelCache = new Map<string, THREE.Group>();
-const loadingSet = new Set<string>();
-const loadQueueMap = new Map<
-  string,
-  Array<(scene: THREE.Group | null) => void>
->();
-
-/** 归一化模型：克隆 geometry 后将顶点居中到原点并缩放到单位尺寸 */
-function normalizeModel(scene: THREE.Group): THREE.Group {
-  const box = new THREE.Box3().setFromObject(scene);
-  const center = box.getCenter(new THREE.Vector3());
-  const size = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const scale = maxDim > 0 ? 1 / maxDim : 1;
-
-  scene.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
-      // 克隆 geometry，避免修改原始数据影响其他模型
-      const originalGeo = child.geometry;
-      const geo = originalGeo.clone();
-      child.geometry = geo;
-
-      const posAttr = geo.attributes.position;
-      for (let i = 0; i < posAttr.count; i++) {
-        const x = posAttr.getX(i) - center.x;
-        const y = posAttr.getY(i) - center.y;
-        const z = posAttr.getZ(i) - center.z;
-        posAttr.setXYZ(i, x * scale, y * scale, z * scale);
-      }
-      posAttr.needsUpdate = true;
-      geo.computeVertexNormals();
-    }
-  });
-
-  scene.position.set(0, 0, 0);
-  scene.scale.set(1, 1, 1);
-  scene.rotation.set(0, 0, 0);
-
-  return scene;
-}
-
-function loadPlanetModel(
-  modelPath: string,
-  cb: (scene: THREE.Group | null) => void
-) {
-  const cached = modelCache.get(modelPath);
-  if (cached) {
-    cb(cached);
-    return;
-  }
-
-  let queue = loadQueueMap.get(modelPath);
-  if (!queue) {
-    queue = [];
-    loadQueueMap.set(modelPath, queue);
-  }
-  queue.push(cb);
-
-  if (loadingSet.has(modelPath)) {
-    return;
-  }
-  loadingSet.add(modelPath);
-
-  const loader = new GLTFLoader();
-  loader.load(
-    modelPath,
-    (gltf) => {
-      console.log("Planet model loaded:", modelPath);
-      const normalized = normalizeModel(gltf.scene);
-      modelCache.set(modelPath, normalized);
-      loadingSet.delete(modelPath);
-      const q = loadQueueMap.get(modelPath);
-      if (q) {
-        for (const queued of q) {
-          queued(normalized);
-        }
-        loadQueueMap.delete(modelPath);
-      }
-    },
-    undefined,
-    (err) => {
-      console.error("Planet model load failed:", modelPath, err);
-      loadingSet.delete(modelPath);
-      const q = loadQueueMap.get(modelPath);
-      if (q) {
-        for (const queued of q) {
-          queued(null);
-        }
-        loadQueueMap.delete(modelPath);
-      }
-    }
-  );
-}
-
-export function PlanetNode({ node, position, onClick }: PlanetNodeProps) {
+export function PlanetNode({
+  node,
+  position,
+  onClick,
+  isGalaxy = false,
+}: PlanetNodeProps) {
   const groupRef = useRef<THREE.Group>(null);
   const outerShellRef = useRef<THREE.Mesh>(null);
   const coreRef = useRef<THREE.Mesh>(null);
@@ -162,7 +41,7 @@ export function PlanetNode({ node, position, onClick }: PlanetNodeProps) {
   const nodeScale = useMemo(() => getNodeScale(node.depth ?? 0), [node.depth]);
   const colors = planetColors[node.status] || planetColors.untouched;
 
-  // ── 异步加载星球模型 ──────────────────────────────
+  // 异步加载星球模型
   useEffect(() => {
     let mounted = true;
     loadPlanetModel(planetPath, (scene) => {
@@ -175,7 +54,7 @@ export function PlanetNode({ node, position, onClick }: PlanetNodeProps) {
     };
   }, [planetPath]);
 
-  // ── 模型克隆 + 材质设置 ──────────────────────
+  // 模型克隆 + 材质设置
   const modelClone = useMemo(() => {
     if (!modelScene) {
       return null;
@@ -196,9 +75,7 @@ export function PlanetNode({ node, position, onClick }: PlanetNodeProps) {
         mat.transparent = false;
         mat.opacity = 1.0;
         mat.envMapIntensity = 0.3;
-        // 星球自发光：用模型自身颜色作为 emissive 基础色，保持原有色调
         const baseColor = mat.color.clone();
-        // 如果模型颜色太暗，稍微提亮
         const brightness = baseColor.r + baseColor.g + baseColor.b;
         if (brightness < 0.3) {
           baseColor.multiplyScalar(2.0);
@@ -211,7 +88,7 @@ export function PlanetNode({ node, position, onClick }: PlanetNodeProps) {
     return clone;
   }, [modelScene, nodeScale]);
 
-  // ── 模型的 mesh 引用（避免每帧 traverse） ────
+  // 模型的 mesh 引用（避免每帧 traverse）
   const modelMeshes = useMemo(() => {
     if (!modelClone) {
       return [];
@@ -252,10 +129,9 @@ export function PlanetNode({ node, position, onClick }: PlanetNodeProps) {
       mat.emissiveIntensity = 0.3 + pulse * 0.5;
     }
 
-    // 模型 emissive 呼吸增强（保持模型自身色调）
+    // 模型 emissive 呼吸增强
     for (const mesh of modelMeshes) {
       const mat = mesh.material as THREE.MeshStandardMaterial;
-      // 基础发光 0.6 + 呼吸脉冲，悬停时更亮
       const baseIntensity = 0.6;
       const breathe = pulse * 0.3;
       const hoverBoost = hovered ? 0.5 : 0;
@@ -302,7 +178,7 @@ export function PlanetNode({ node, position, onClick }: PlanetNodeProps) {
       {hasModel && (
         <>
           <primitive object={modelClone} />
-          {/* 透明点击区域：包裹模型，确保点击事件可触发 */}
+          {isGalaxy && <NebulaShell colors={colors} scale={nodeScale} />}
           <mesh
             onClick={(e) => {
               e.stopPropagation();
@@ -325,36 +201,39 @@ export function PlanetNode({ node, position, onClick }: PlanetNodeProps) {
         </>
       )}
 
-      {/* 球体回退 — 实心发光，清晰可见（模型加载前/失败时显示） */}
+      {/* 球体回退 — 实心发光 */}
       {!hasModel && (
-        <mesh
-          onClick={(e) => {
-            e.stopPropagation();
-            onClick();
-          }}
-          onPointerOut={(e) => {
-            e.stopPropagation();
-            setHovered(false);
-            document.body.style.cursor = "auto";
-          }}
-          onPointerOver={(e) => {
-            e.stopPropagation();
-            setHovered(true);
-            document.body.style.cursor = "pointer";
-          }}
-          ref={outerShellRef}
-        >
-          <sphereGeometry args={[nodeScale, 24, 24]} />
-          <meshStandardMaterial
-            color={colors.shell}
-            emissive={colors.core}
-            emissiveIntensity={0.5}
-            metalness={0.1}
-            opacity={0.85}
-            roughness={0.3}
-            transparent
-          />
-        </mesh>
+        <>
+          <mesh
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick();
+            }}
+            onPointerOut={(e) => {
+              e.stopPropagation();
+              setHovered(false);
+              document.body.style.cursor = "auto";
+            }}
+            onPointerOver={(e) => {
+              e.stopPropagation();
+              setHovered(true);
+              document.body.style.cursor = "pointer";
+            }}
+            ref={outerShellRef}
+          >
+            <sphereGeometry args={[nodeScale, 24, 24]} />
+            <meshStandardMaterial
+              color={colors.shell}
+              emissive={colors.core}
+              emissiveIntensity={0.5}
+              metalness={0.1}
+              opacity={0.85}
+              roughness={0.3}
+              transparent
+            />
+          </mesh>
+          {isGalaxy && <NebulaShell colors={colors} scale={nodeScale} />}
+        </>
       )}
 
       {/* 发光核心 */}

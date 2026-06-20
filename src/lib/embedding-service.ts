@@ -127,7 +127,9 @@ export class EmbeddingService {
       depth?: number;
     }>,
     viewEmbedding?: number[] | null,
-    timeSequence?: string[]
+    timeSequence?: string[],
+    userOffsets?: Map<string, [number, number, number]>,
+    customGroups?: Array<{ groupId: string; nodeIds: string[]; title: string }>
   ): {
     nodes: Array<{
       id: string;
@@ -135,6 +137,7 @@ export class EmbeddingService {
       position: [number, number, number];
       depth: number;
       similarity?: number;
+      groupId?: string;
     }>;
     edges: Array<{ from: string; to: string; weight: number }>;
   } {
@@ -178,13 +181,35 @@ export class EmbeddingService {
     // 计算节点位置 - 基于语义空间的 3D 投影
     const positions = this.calculateSemanticPositions(topics, edges);
 
+    // 叠加用户偏移量
+    const finalPositions = new Map<string, [number, number, number]>();
+    for (const [id, pos] of positions) {
+      const offset = userOffsets?.get(id) || [0, 0, 0];
+      finalPositions.set(id, [
+        pos[0] + offset[0],
+        pos[1] + offset[1],
+        pos[2] + offset[2],
+      ]);
+    }
+
+    // 如果有自定义分组，按分组重新组织节点
+    const nodeGroupMap = new Map<string, string>();
+    if (customGroups) {
+      for (const group of customGroups) {
+        for (const nodeId of group.nodeIds) {
+          nodeGroupMap.set(nodeId, group.groupId);
+        }
+      }
+    }
+
     return {
       nodes: topics.map((t) => ({
         id: t.id,
         title: t.title,
-        position: positions.get(t.id) || [0, 0, 0],
+        position: finalPositions.get(t.id) || [0, 0, 0],
         depth: nodeDepths.get(t.id) || 0,
         similarity: similarityMap.get(t.id)?.get(rootId) || 0,
+        groupId: nodeGroupMap.get(t.id),
       })),
       edges: edges.map((e) => ({
         from: e.from,

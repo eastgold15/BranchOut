@@ -25,17 +25,26 @@ interface SessionState {
   addView: (view: CustomView) => void;
   clearSession: () => void;
   currentChatNodeId: string | null;
+  currentGalaxyId: string | null;
   currentViewType: ViewType;
   customViews: CustomView[];
+  draggingNodeId: string | null;
+  dragStartPos: [number, number, number] | null;
+  endDrag: () => void;
   enterChat: (nodeId: string, title: string) => void;
+  enterGalaxy: (galaxyId: string) => void;
   enterSubChat: (nodeId: string, title: string) => void;
   error: string | null;
+  exitGalaxy: () => void;
+  galaxyHistory: string[];
   goBack: () => void;
   isLoading: boolean;
   loadRecentSessions: () => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
   loadViews: (sessionId: string) => Promise<void>;
   navigationStack: NavigationStackItem[];
+  nodeOffsets: Map<string, [number, number, number]>;
+  onDrag: (delta: [number, number, number]) => void;
   recentSessions: RecentSession[];
   returnToTree: () => void;
   session: KnowledgeSession | null;
@@ -46,6 +55,8 @@ interface SessionState {
   setSession: (session: KnowledgeSession) => void;
   setViewMode: (mode: ViewMode) => void;
   setViewType: (type: ViewType) => void;
+  startDrag: (nodeId: string, worldPos: [number, number, number]) => void;
+  updateNodeOffsets: (offsets: Map<string, [number, number, number]>) => void;
   updateNodeStatus: (nodeId: string, status: NodeStatus) => void;
   viewMode: ViewMode;
 }
@@ -60,6 +71,11 @@ export const useSessionStore = create<SessionState>((set) => ({
   error: null,
   recentSessions: [],
   customViews: [],
+  nodeOffsets: new Map(),
+  currentGalaxyId: null,
+  galaxyHistory: [],
+  draggingNodeId: null,
+  dragStartPos: null,
 
   setSession: (session) =>
     set({
@@ -267,6 +283,60 @@ export const useSessionStore = create<SessionState>((set) => ({
     set((state) => ({
       customViews: [...state.customViews, view],
     })),
+
+  updateNodeOffsets: (offsets) => set({ nodeOffsets: offsets }),
+
+  startDrag: (nodeId, worldPos) =>
+    set({ draggingNodeId: nodeId, dragStartPos: worldPos }),
+
+  onDrag: (delta) =>
+    set((state) => {
+      if (!state.draggingNodeId) {
+        return state;
+      }
+
+      const newOffsets = new Map(state.nodeOffsets);
+      const currentOffset = newOffsets.get(state.draggingNodeId) || [0, 0, 0];
+      const newOffset: [number, number, number] = [
+        currentOffset[0] + delta[0],
+        currentOffset[1] + delta[1],
+        currentOffset[2] + delta[2],
+      ];
+      newOffsets.set(state.draggingNodeId, newOffset);
+
+      const node = state.session?.nodes.get(state.draggingNodeId);
+      if (node?.children.length) {
+        for (const childId of node.children) {
+          const childOffset = newOffsets.get(childId) || [0, 0, 0];
+          newOffsets.set(childId, [
+            childOffset[0] + delta[0],
+            childOffset[1] + delta[1],
+            childOffset[2] + delta[2],
+          ]);
+        }
+      }
+
+      return { nodeOffsets: newOffsets };
+    }),
+
+  endDrag: () => set({ draggingNodeId: null, dragStartPos: null }),
+
+  enterGalaxy: (galaxyId) =>
+    set((state) => ({
+      galaxyHistory: [...state.galaxyHistory, state.currentGalaxyId || ""],
+      currentGalaxyId: galaxyId,
+    })),
+
+  exitGalaxy: () =>
+    set((state) => {
+      const newHistory = [...state.galaxyHistory];
+      const prevGalaxy = newHistory.pop() || null;
+      return {
+        galaxyHistory: newHistory,
+        currentGalaxyId: prevGalaxy,
+      };
+    }),
+
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
   clearSession: () =>
@@ -277,5 +347,8 @@ export const useSessionStore = create<SessionState>((set) => ({
       currentChatNodeId: null,
       customViews: [],
       error: null,
+      nodeOffsets: new Map(),
+      currentGalaxyId: null,
+      galaxyHistory: [],
     }),
 }));
