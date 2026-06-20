@@ -28,6 +28,7 @@ export interface TopicNodeData {
   depth: number;
   embedding?: number[] | null;
   id: string;
+  offset?: string; // JSON: "[x,y,z]" 3D偏移量
   parentId: string | null;
   source: NodeSource;
   status: NodeStatus;

@@ -4,9 +4,11 @@ import { Html } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { useSessionStore } from "@/store/sessionStore";
 import type { TopicNodeData } from "@/types";
 import { getNodeScale, planetColors } from "../constants/planet-colors";
 import { getPlanetForNode, loadPlanetModel } from "../utils/model-loader";
+import { DraggableNode } from "./DraggableNode";
 import { NebulaShell } from "./NebulaShell";
 
 interface PlanetNodeProps {
@@ -35,11 +37,26 @@ export function PlanetNode({
   const [modelScene, setModelScene] = useState<THREE.Group | null>(null);
   const { camera } = useThree();
 
+  // 从 store 获取节点偏移量
+  const nodeOffsets = useSessionStore((s) => s.nodeOffsets);
+  const draggingNodeId = useSessionStore((s) => s.draggingNodeId);
+  const isDragging = draggingNodeId === node.id;
+
   const planetPath = useMemo(() => getPlanetForNode(node.id), [node.id]);
   const pointerWorld = useRef(new THREE.Vector3());
   const basePosition = useMemo(() => position.clone(), [position]);
   const nodeScale = useMemo(() => getNodeScale(node.depth ?? 0), [node.depth]);
   const colors = planetColors[node.status] || planetColors.untouched;
+
+  // 计算最终位置：基础位置 + 偏移量
+  const finalPosition = useMemo(() => {
+    const offset = nodeOffsets.get(node.id) || [0, 0, 0];
+    return new THREE.Vector3(
+      basePosition.x + offset[0],
+      basePosition.y + offset[1],
+      basePosition.z + offset[2]
+    );
+  }, [basePosition, nodeOffsets, node.id]);
 
   // 异步加载星球模型
   useEffect(() => {
@@ -111,7 +128,7 @@ export function PlanetNode({
     const float = floatRef.current;
     const floatY = Math.sin(time * float.speed + float.offset) * float.amp;
 
-    const dist = camera.position.distanceTo(basePosition);
+    const dist = camera.position.distanceTo(finalPosition);
     const t = 1 - Math.min(Math.max((dist - 5) / 20, 0), 1);
 
     // 呼吸脉冲
@@ -135,7 +152,8 @@ export function PlanetNode({
       const baseIntensity = 0.6;
       const breathe = pulse * 0.3;
       const hoverBoost = hovered ? 0.5 : 0;
-      mat.emissiveIntensity = baseIntensity + breathe + hoverBoost;
+      const dragBoost = isDragging ? 0.3 : 0;
+      mat.emissiveIntensity = baseIntensity + breathe + hoverBoost + dragBoost;
     }
 
     // 光环动画
@@ -150,136 +168,142 @@ export function PlanetNode({
     }
 
     // 磁性吸附 + 浮动
-    const targetPos = basePosition.clone();
+    const targetPos = finalPosition.clone();
     targetPos.y += floatY;
 
-    if (hovered) {
+    if (hovered && !isDragging) {
       const raycaster = state.raycaster;
       if (raycaster.ray) {
         raycaster.ray.at(10, pointerWorld.current);
         const dir = pointerWorld.current
           .clone()
-          .sub(basePosition)
+          .sub(finalPosition)
           .normalize()
           .multiplyScalar(0.25);
         targetPos.add(dir);
       }
       groupRef.current.position.lerp(targetPos, 0.2);
     } else {
-      groupRef.current.position.lerp(targetPos, 0.08);
+      groupRef.current.position.lerp(targetPos, isDragging ? 1 : 0.08);
     }
   });
 
   const hasModel = modelClone !== null;
 
   return (
-    <group position={basePosition} ref={groupRef}>
-      {/* 星球 3D 模型（加载完成后显示） */}
-      {hasModel && (
-        <>
-          <primitive object={modelClone} />
-          {isGalaxy && <NebulaShell colors={colors} scale={nodeScale} />}
-          <mesh
-            onClick={(e) => {
-              e.stopPropagation();
-              onClick();
-            }}
-            onPointerOut={(e) => {
-              e.stopPropagation();
-              setHovered(false);
-              document.body.style.cursor = "auto";
-            }}
-            onPointerOver={(e) => {
-              e.stopPropagation();
-              setHovered(true);
-              document.body.style.cursor = "pointer";
-            }}
-          >
-            <sphereGeometry args={[nodeScale * 1.0, 16, 16]} />
-            <meshBasicMaterial depthWrite={false} opacity={0} transparent />
-          </mesh>
-        </>
-      )}
+    <DraggableNode
+      basePosition={finalPosition}
+      nodeId={node.id}
+      nodeScale={nodeScale}
+    >
+      <group ref={groupRef}>
+        {/* 星球 3D 模型（加载完成后显示） */}
+        {hasModel && (
+          <>
+            <primitive object={modelClone} />
+            {isGalaxy && <NebulaShell colors={colors} scale={nodeScale} />}
+            <mesh
+              onClick={(e) => {
+                e.stopPropagation();
+                onClick();
+              }}
+              onPointerOut={(e) => {
+                e.stopPropagation();
+                setHovered(false);
+                document.body.style.cursor = "auto";
+              }}
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                setHovered(true);
+                document.body.style.cursor = "pointer";
+              }}
+            >
+              <sphereGeometry args={[nodeScale * 1.0, 16, 16]} />
+              <meshBasicMaterial depthWrite={false} opacity={0} transparent />
+            </mesh>
+          </>
+        )}
 
-      {/* 球体回退 — 实心发光 */}
-      {!hasModel && (
-        <>
-          <mesh
-            onClick={(e) => {
-              e.stopPropagation();
-              onClick();
-            }}
-            onPointerOut={(e) => {
-              e.stopPropagation();
-              setHovered(false);
-              document.body.style.cursor = "auto";
-            }}
-            onPointerOver={(e) => {
-              e.stopPropagation();
-              setHovered(true);
-              document.body.style.cursor = "pointer";
-            }}
-            ref={outerShellRef}
-          >
-            <sphereGeometry args={[nodeScale, 24, 24]} />
-            <meshStandardMaterial
-              color={colors.shell}
-              emissive={colors.core}
-              emissiveIntensity={0.5}
-              metalness={0.1}
-              opacity={0.85}
-              roughness={0.3}
-              transparent
-            />
-          </mesh>
-          {isGalaxy && <NebulaShell colors={colors} scale={nodeScale} />}
-        </>
-      )}
+        {/* 球体回退 — 实心发光 */}
+        {!hasModel && (
+          <>
+            <mesh
+              onClick={(e) => {
+                e.stopPropagation();
+                onClick();
+              }}
+              onPointerOut={(e) => {
+                e.stopPropagation();
+                setHovered(false);
+                document.body.style.cursor = "auto";
+              }}
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                setHovered(true);
+                document.body.style.cursor = "pointer";
+              }}
+              ref={outerShellRef}
+            >
+              <sphereGeometry args={[nodeScale, 24, 24]} />
+              <meshStandardMaterial
+                color={colors.shell}
+                emissive={colors.core}
+                emissiveIntensity={0.5}
+                metalness={0.1}
+                opacity={0.85}
+                roughness={0.3}
+                transparent
+              />
+            </mesh>
+            {isGalaxy && <NebulaShell colors={colors} scale={nodeScale} />}
+          </>
+        )}
 
-      {/* 发光核心 */}
-      <mesh ref={coreRef}>
-        <sphereGeometry args={[nodeScale * 0.5, 16, 16]} />
-        <meshBasicMaterial
-          color={colors.core}
-          depthWrite={false}
-          opacity={0.6}
-          transparent
-        />
-      </mesh>
-
-      {/* 已探索/已掌握状态的光环 */}
-      {(node.status === "explored" || node.status === "mastered") && (
-        <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[nodeScale * 1.4, 0.012, 8, 48]} />
+        {/* 发光核心 */}
+        <mesh ref={coreRef}>
+          <sphereGeometry args={[nodeScale * 0.5, 16, 16]} />
           <meshBasicMaterial
-            color={colors.ring}
+            color={colors.core}
             depthWrite={false}
-            opacity={0.4}
+            opacity={0.6}
             transparent
           />
         </mesh>
-      )}
 
-      {/* 文字标签 */}
-      <Html
-        center
-        distanceFactor={14}
-        position={[0, nodeScale * 0.9 + 0.08, 0]}
-        style={{ pointerEvents: "none" }}
-      >
-        <div
-          className="whitespace-nowrap text-center font-bold text-sm transition-all duration-200"
-          style={{
-            color: hovered ? colors.shell : "#9CA3AF",
-            textShadow: hovered
-              ? `0 0 10px ${colors.core}, 0 0 20px ${colors.core}`
-              : "0 1px 3px rgba(0,0,0,0.8)",
-            transform: hovered ? "scale(1.2) translateY(-2px)" : "scale(1)",
-          }}
+        {/* 已探索/已掌握状态的光环 */}
+        {(node.status === "explored" || node.status === "mastered") && (
+          <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[nodeScale * 1.4, 0.012, 8, 48]} />
+            <meshBasicMaterial
+              color={colors.ring}
+              depthWrite={false}
+              opacity={0.4}
+              transparent
+            />
+          </mesh>
+        )}
+
+        {/* 文字标签 */}
+        <Html
+          center
+          distanceFactor={14}
+          position={[0, nodeScale * 0.9 + 0.08, 0]}
+          style={{ pointerEvents: "none" }}
         >
-          {node.title}
-        </div>
-      </Html>
-    </group>
+          <div
+            className="whitespace-nowrap text-center font-bold text-sm transition-all duration-200"
+            style={{
+              color: hovered ? colors.shell : "#9CA3AF",
+              textShadow: hovered
+                ? `0 0 10px ${colors.core}, 0 0 20px ${colors.core}`
+                : "0 1px 3px rgba(0,0,0,0.8)",
+              transform: hovered ? "scale(1.2) translateY(-2px)" : "scale(1)",
+            }}
+          >
+            {node.title}
+          </div>
+        </Html>
+      </group>
+    </DraggableNode>
   );
 }

@@ -109,8 +109,22 @@ export const useSessionStore = create<SessionState>((set) => ({
       const data = await res.json();
 
       const nodesMap = new Map<string, TopicNodeData>();
+      const offsetsMap = new Map<string, [number, number, number]>();
+
       for (const node of data.nodes as TopicNodeData[]) {
         nodesMap.set(node.id, node);
+
+        // 从节点数据中加载偏移量
+        if (node.offset) {
+          try {
+            const offset = JSON.parse(node.offset as string);
+            if (Array.isArray(offset) && offset.length === 3) {
+              offsetsMap.set(node.id, offset as [number, number, number]);
+            }
+          } catch {
+            // 忽略无效的 offset
+          }
+        }
       }
 
       const session: KnowledgeSession = {
@@ -126,6 +140,7 @@ export const useSessionStore = create<SessionState>((set) => ({
 
       set({
         session,
+        nodeOffsets: offsetsMap,
         viewMode: "chat",
         navigationStack: [],
         currentChatNodeId: null,
@@ -319,7 +334,22 @@ export const useSessionStore = create<SessionState>((set) => ({
       return { nodeOffsets: newOffsets };
     }),
 
-  endDrag: () => set({ draggingNodeId: null, dragStartPos: null }),
+  endDrag: () =>
+    set((state) => {
+      // 拖拽结束后，持久化偏移量到服务器
+      const { draggingNodeId, nodeOffsets } = state;
+      if (draggingNodeId) {
+        const offset = nodeOffsets.get(draggingNodeId);
+        if (offset) {
+          fetch(`/api/nodes?id=${draggingNodeId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ offset: JSON.stringify(offset) }),
+          }).catch((err) => console.error("Failed to save offset:", err));
+        }
+      }
+      return { draggingNodeId: null, dragStartPos: null };
+    }),
 
   enterGalaxy: (galaxyId) =>
     set((state) => ({

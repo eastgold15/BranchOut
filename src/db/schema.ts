@@ -26,6 +26,7 @@ export const topicNodes = sqliteTable("topic_nodes", {
   parentId: text("parent_id"),
   depth: integer("depth").notNull().default(0),
   embedding: text("embedding"), // JSON: "[0.023,-0.056,...]" 384维向量
+  offset: text("offset").default("[0,0,0]"), // JSON: [x, y, z] 用户拖拽偏移
   status: text("status", {
     enum: ["untouched", "mentioned", "explored", "mastered", "weak"],
   })
