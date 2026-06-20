@@ -42,6 +42,22 @@ export function PlanetNode({
   const draggingNodeId = useSessionStore((s) => s.draggingNodeId);
   const isDragging = draggingNodeId === node.id;
 
+  // 获取节点所属分组的颜色
+  const groupColor = useMemo(() => {
+    const currentView = useSessionStore
+      .getState()
+      .customViews.find(
+        (v) => v.id === useSessionStore.getState().currentViewType
+      );
+    if (!currentView?.viewGroups) {
+      return null;
+    }
+    const group = currentView.viewGroups.find((g) =>
+      g.nodeIds.includes(node.id)
+    );
+    return group?.color || null;
+  }, [node.id]);
+
   const planetPath = useMemo(() => getPlanetForNode(node.id), [node.id]);
   const pointerWorld = useRef(new THREE.Vector3());
   const basePosition = useMemo(() => position.clone(), [position]);
@@ -278,6 +294,19 @@ export function PlanetNode({
               color={colors.ring}
               depthWrite={false}
               opacity={0.4}
+              transparent
+            />
+          </mesh>
+        )}
+
+        {/* 分组颜色标识 */}
+        {groupColor && (
+          <mesh position={[0, nodeScale * 0.6, nodeScale * 0.6]}>
+            <sphereGeometry args={[nodeScale * 0.12, 8, 8]} />
+            <meshBasicMaterial
+              color={groupColor}
+              depthWrite={false}
+              opacity={0.9}
               transparent
             />
           </mesh>

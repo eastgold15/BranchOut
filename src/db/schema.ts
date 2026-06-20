@@ -104,10 +104,36 @@ export const views = sqliteTable("views", {
     .$defaultFn(() => new Date()),
 });
 
-export const viewsRelations = relations(views, ({ one }) => ({
+export const viewGroups = sqliteTable("view_groups", {
+  id: text("id").primaryKey(),
+  viewId: text("view_id")
+    .notNull()
+    .references(() => views.id, { onDelete: "cascade" }),
+  parentId: text("parent_id"),
+  title: text("title").notNull(),
+  nodeIds: text("node_ids").notNull().default("[]"),
+  color: text("color").notNull().default("#60A5FA"),
+  position: integer("position").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const viewsRelations = relations(views, ({ one, many }) => ({
   session: one(sessions, {
     fields: [views.sessionId],
     references: [sessions.id],
+  }),
+  groups: many(viewGroups),
+}));
+
+export const viewGroupsRelations = relations(viewGroups, ({ one }) => ({
+  view: one(views, {
+    fields: [viewGroups.viewId],
+    references: [views.id],
   }),
 }));
 
@@ -119,3 +145,5 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type View = typeof views.$inferSelect;
 export type NewView = typeof views.$inferInsert;
+export type ViewGroup = typeof viewGroups.$inferSelect;
+export type NewViewGroup = typeof viewGroups.$inferInsert;

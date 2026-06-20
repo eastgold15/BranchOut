@@ -6,6 +6,7 @@ import type {
   NavigationStackItem,
   NodeStatus,
   TopicNodeData,
+  ViewGroup,
   ViewMode,
   ViewType,
 } from "@/types";
@@ -22,12 +23,23 @@ interface RecentSession {
 interface SessionState {
   addMessage: (message: ChatMessageData) => void;
   addNode: (node: TopicNodeData) => void;
+  addNodeToGroup: (
+    viewId: string,
+    groupId: string,
+    nodeId: string
+  ) => Promise<void>;
   addView: (view: CustomView) => void;
+  addViewGroup: (
+    viewId: string,
+    title: string,
+    color?: string
+  ) => Promise<void>;
   clearSession: () => void;
   currentChatNodeId: string | null;
   currentGalaxyId: string | null;
   currentViewType: ViewType;
   customViews: CustomView[];
+  deleteViewGroup: (viewId: string, groupId: string) => Promise<void>;
   draggingNodeId: string | null;
   dragStartPos: [number, number, number] | null;
   endDrag: () => void;
@@ -46,6 +58,11 @@ interface SessionState {
   nodeOffsets: Map<string, [number, number, number]>;
   onDrag: (delta: [number, number, number]) => void;
   recentSessions: RecentSession[];
+  removeNodeFromGroup: (
+    viewId: string,
+    groupId: string,
+    nodeId: string
+  ) => Promise<void>;
   returnToTree: () => void;
   session: KnowledgeSession | null;
   setError: (error: string | null) => void;
@@ -58,6 +75,11 @@ interface SessionState {
   startDrag: (nodeId: string, worldPos: [number, number, number]) => void;
   updateNodeOffsets: (offsets: Map<string, [number, number, number]>) => void;
   updateNodeStatus: (nodeId: string, status: NodeStatus) => void;
+  updateViewGroup: (
+    viewId: string,
+    groupId: string,
+    updates: Partial<Pick<ViewGroup, "title" | "color" | "nodeIds">>
+  ) => Promise<void>;
   viewMode: ViewMode;
 }
 
@@ -281,13 +303,29 @@ export const useSessionStore = create<SessionState>((set) => ({
         return;
       }
       const data = await res.json();
-      const views: CustomView[] = (data.views || []).map(
-        (v: { id: string; name: string; segments: string }) => ({
+
+      const views: CustomView[] = [];
+      for (const v of data.views || []) {
+        const view: CustomView = {
           id: v.id,
           name: v.name,
           segments: JSON.parse(v.segments || "[]"),
-        })
-      );
+        };
+
+        const groupsRes = await fetch(`/api/views/${v.id}/groups`);
+        if (groupsRes.ok) {
+          const groupsData = await groupsRes.json();
+          view.viewGroups = (groupsData.groups || []).map((g: any) => ({
+            ...g,
+            nodeIds: JSON.parse(g.nodeIds || "[]"),
+            createdAt: new Date(g.createdAt),
+            updatedAt: new Date(g.updatedAt),
+          }));
+        }
+
+        views.push(view);
+      }
+
       set({ customViews: views });
     } catch {
       // 静默失败
@@ -298,6 +336,178 @@ export const useSessionStore = create<SessionState>((set) => ({
     set((state) => ({
       customViews: [...state.customViews, view],
     })),
+
+  addViewGroup: async (viewId: string, title: string, color?: string) => {
+    try {
+      const res = await fetch(`/api/views/${viewId}/groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, color }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const group: ViewGroup = {
+          ...data.group,
+          nodeIds: JSON.parse(data.group.nodeIds || "[]"),
+          createdAt: new Date(data.group.createdAt),
+          updatedAt: new Date(data.group.updatedAt),
+        };
+
+        set((state) => ({
+          customViews: state.customViews.map((v) =>
+            v.id === viewId
+              ? { ...v, viewGroups: [...(v.viewGroups || []), group] }
+              : v
+          ),
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to add group:", err);
+    }
+  },
+
+  updateViewGroup: async (
+    viewId: string,
+    groupId: string,
+    updates: Partial<Pick<ViewGroup, "title" | "color" | "nodeIds">>
+  ) => {
+    try {
+      const res = await fetch(
+        `/api/views/${viewId}/groups?groupId=${groupId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...updates,
+            nodeIds: updates.nodeIds
+              ? JSON.stringify(updates.nodeIds)
+              : undefined,
+          }),
+        }
+      );
+
+      if (res.ok) {
+        set((state) => ({
+          customViews: state.customViews.map((v) =>
+            v.id === viewId
+              ? {
+                  ...v,
+                  viewGroups: (v.viewGroups || []).map((g) =>
+                    g.id === groupId ? { ...g, ...updates } : g
+                  ),
+                }
+              : v
+          ),
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to update group:", err);
+    }
+  },
+
+  deleteViewGroup: async (viewId: string, groupId: string) => {
+    try {
+      const res = await fetch(
+        `/api/views/${viewId}/groups?groupId=${groupId}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (res.ok) {
+        set((state) => ({
+          customViews: state.customViews.map((v) =>
+            v.id === viewId
+              ? {
+                  ...v,
+                  viewGroups: (v.viewGroups || []).filter(
+                    (g) => g.id !== groupId
+                  ),
+                }
+              : v
+          ),
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to delete group:", err);
+    }
+  },
+
+  addNodeToGroup: async (viewId: string, groupId: string, nodeId: string) => {
+    try {
+      const view = (await fetch(`/api/views/${viewId}/groups`)).json();
+      const groups = (await view).groups || [];
+      const group = groups.find((g: any) => g.id === groupId);
+      if (!group) {
+        return;
+      }
+
+      const nodeIds = JSON.parse(group.nodeIds || "[]");
+      if (!nodeIds.includes(nodeId)) {
+        nodeIds.push(nodeId);
+        await fetch(`/api/views/${viewId}/groups?groupId=${groupId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nodeIds: JSON.stringify(nodeIds) }),
+        });
+
+        set((state) => ({
+          customViews: state.customViews.map((v) =>
+            v.id === viewId
+              ? {
+                  ...v,
+                  viewGroups: (v.viewGroups || []).map((g) =>
+                    g.id === groupId ? { ...g, nodeIds } : g
+                  ),
+                }
+              : v
+          ),
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to add node to group:", err);
+    }
+  },
+
+  removeNodeFromGroup: async (
+    viewId: string,
+    groupId: string,
+    nodeId: string
+  ) => {
+    try {
+      const view = (await fetch(`/api/views/${viewId}/groups`)).json();
+      const groups = (await view).groups || [];
+      const group = groups.find((g: any) => g.id === groupId);
+      if (!group) {
+        return;
+      }
+
+      const nodeIds = JSON.parse(group.nodeIds || "[]").filter(
+        (id: string) => id !== nodeId
+      );
+      await fetch(`/api/views/${viewId}/groups?groupId=${groupId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodeIds: JSON.stringify(nodeIds) }),
+      });
+
+      set((state) => ({
+        customViews: state.customViews.map((v) =>
+          v.id === viewId
+            ? {
+                ...v,
+                viewGroups: (v.viewGroups || []).map((g) =>
+                  g.id === groupId ? { ...g, nodeIds } : g
+                ),
+              }
+            : v
+        ),
+      }));
+    } catch (err) {
+      console.error("Failed to remove node from group:", err);
+    }
+  },
 
   updateNodeOffsets: (offsets) => set({ nodeOffsets: offsets }),
 

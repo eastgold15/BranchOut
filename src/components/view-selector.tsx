@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSessionStore } from "@/store/sessionStore";
 import type { ViewType } from "@/types";
+import { GroupManager } from "./view-selector/GroupManager";
 
 const viewOptions: Array<{ type: ViewType; label: string; desc: string }> = [
   {
@@ -32,8 +33,11 @@ export function ViewSelector() {
     useSessionStore();
   const [showCreate, setShowCreate] = useState(false);
   const [newViewName, setNewViewName] = useState("");
+  const [managingGroupView, setManagingGroupView] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
-  // 加载该 session 的自定义视角
   useEffect(() => {
     if (session?.id) {
       loadViews(session.id);
@@ -73,80 +77,99 @@ export function ViewSelector() {
   };
 
   return (
-    <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2">
-      <div className="flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/80 p-1.5 shadow-black/30 shadow-lg backdrop-blur-md">
-        {viewOptions.map((opt) => (
-          <button
-            className={`rounded-full px-4 py-1.5 font-medium text-xs transition-all ${
-              currentViewType === opt.type
-                ? "bg-sky-600 text-white shadow-lg shadow-sky-600/30"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-            key={opt.type}
-            onClick={() => setViewType(opt.type)}
-            title={opt.desc}
-            type="button"
-          >
-            {opt.label}
-          </button>
-        ))}
-
-        {/* 自定义视角 */}
-        {customViews.map((view) => (
-          <button
-            className={`rounded-full px-4 py-1.5 font-medium text-xs transition-all ${
-              currentViewType === view.id
-                ? "bg-emerald-600 text-white shadow-emerald-600/30 shadow-lg"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-            key={view.id}
-            onClick={() => setViewType(view.id)}
-            title={`自定义视角: ${view.name}`}
-            type="button"
-          >
-            {view.name}
-          </button>
-        ))}
-
-        {/* 创建新视角按钮 */}
-        {showCreate ? (
-          <div className="flex items-center gap-1">
-            <input
-              className="w-24 rounded bg-slate-800 px-2 py-1 text-white text-xs placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-              onChange={(e) => setNewViewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreateView()}
-              placeholder="视角名称..."
-              value={newViewName}
-            />
+    <>
+      <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2">
+        <div className="flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/80 p-1.5 shadow-black/30 shadow-lg backdrop-blur-md">
+          {viewOptions.map((opt) => (
             <button
-              className="rounded px-2 py-1 text-sky-400 text-xs hover:bg-slate-800"
-              onClick={handleCreateView}
+              className={`rounded-full px-4 py-1.5 font-medium text-xs transition-all ${
+                currentViewType === opt.type
+                  ? "bg-sky-600 text-white shadow-lg shadow-sky-600/30"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              }`}
+              key={opt.type}
+              onClick={() => setViewType(opt.type)}
+              title={opt.desc}
               type="button"
             >
-              ✓
+              {opt.label}
             </button>
+          ))}
+
+          {customViews.map((view) => (
+            <div className="flex items-center gap-1" key={view.id}>
+              <button
+                className={`rounded-full px-4 py-1.5 font-medium text-xs transition-all ${
+                  currentViewType === view.id
+                    ? "bg-emerald-600 text-white shadow-emerald-600/30 shadow-lg"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+                onClick={() => setViewType(view.id)}
+                title={`自定义视角: ${view.name}`}
+                type="button"
+              >
+                {view.name}
+              </button>
+              <button
+                className="rounded-full px-2 py-1.5 text-slate-500 text-xs transition-all hover:bg-slate-800 hover:text-purple-400"
+                onClick={() =>
+                  setManagingGroupView({ id: view.id, name: view.name })
+                }
+                title="管理分组"
+                type="button"
+              >
+                ⋯
+              </button>
+            </div>
+          ))}
+
+          {showCreate ? (
+            <div className="flex items-center gap-1">
+              <input
+                className="w-24 rounded bg-slate-800 px-2 py-1 text-white text-xs placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                onChange={(e) => setNewViewName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreateView()}
+                placeholder="视角名称..."
+                value={newViewName}
+              />
+              <button
+                className="rounded px-2 py-1 text-sky-400 text-xs hover:bg-slate-800"
+                onClick={handleCreateView}
+                type="button"
+              >
+                ✓
+              </button>
+              <button
+                className="rounded px-2 py-1 text-slate-500 text-xs hover:bg-slate-800"
+                onClick={() => {
+                  setShowCreate(false);
+                  setNewViewName("");
+                }}
+                type="button"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
             <button
-              className="rounded px-2 py-1 text-slate-500 text-xs hover:bg-slate-800"
-              onClick={() => {
-                setShowCreate(false);
-                setNewViewName("");
-              }}
+              className="rounded-full px-3 py-1.5 text-slate-500 text-xs transition-all hover:bg-slate-800 hover:text-slate-300"
+              onClick={() => setShowCreate(true)}
+              title="创建自定义视角"
               type="button"
             >
-              ✕
+              + 新建视角
             </button>
-          </div>
-        ) : (
-          <button
-            className="rounded-full px-3 py-1.5 text-slate-500 text-xs transition-all hover:bg-slate-800 hover:text-slate-300"
-            onClick={() => setShowCreate(true)}
-            title="创建自定义视角"
-            type="button"
-          >
-            + 新建视角
-          </button>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+
+      {managingGroupView && (
+        <GroupManager
+          onClose={() => setManagingGroupView(null)}
+          viewId={managingGroupView.id}
+          viewName={managingGroupView.name}
+        />
+      )}
+    </>
   );
 }

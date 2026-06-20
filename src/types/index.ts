@@ -19,6 +19,19 @@ export interface CustomView {
   id: string;
   name: string;
   segments: Array<{ title: string; nodeIds: string[] }>;
+  viewGroups?: ViewGroup[];
+}
+
+export interface ViewGroup {
+  color: string;
+  createdAt: Date;
+  id: string;
+  nodeIds: string[];
+  parentId: string | null;
+  position: number;
+  title: string;
+  updatedAt: Date;
+  viewId: string;
 }
 
 export interface TopicNodeData {
