@@ -40,6 +40,7 @@ export function ChatCard({ topicId, title, isNested = false }: ChatCardProps) {
       title: input.slice(0, 50),
       timestamp: new Date(),
       parentId: topicId,
+      order: 0,
     };
 
     setInput("");
@@ -121,6 +122,7 @@ export function ChatCard({ topicId, title, isNested = false }: ChatCardProps) {
         title: "AI回复",
         timestamp: new Date(),
         parentId: topicId,
+        order: 0,
       };
 
       try {

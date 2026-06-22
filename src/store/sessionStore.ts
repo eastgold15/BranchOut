@@ -3,6 +3,7 @@ import type {
   AtomMessageData,
   KnowledgeSession,
   NavigationStackItem,
+  TopicType,
   ViewMode,
 } from "@/types";
 
@@ -16,50 +17,50 @@ interface RecentSession {
 }
 
 interface SessionState {
-  // 状态
   session: KnowledgeSession | null;
   viewMode: ViewMode;
   isLoading: boolean;
   error: string | null;
   recentSessions: RecentSession[];
   navigationStack: NavigationStackItem[];
-  currentTopicId: string | null; // 当前活跃话题
-  currentGalaxyId: string | null; // 当前所在星系（3D视图）
+  currentTopicId: string | null;
+  currentGalaxyId: string | null;
   galaxyHistory: string[];
 
-  // Actions
   setSession: (session: KnowledgeSession) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   clearSession: () => void;
 
-  // 会话管理
   loadRecentSessions: () => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
 
-  // 消息管理
   addMessage: (message: AtomMessageData) => void;
   updateMessage: (id: string, updates: Partial<AtomMessageData>) => void;
 
-  // 话题管理
   createTopic: (title: string, parentId?: string) => Promise<void>;
   moveMessageToTopic: (messageId: string, topicId: string) => Promise<void>;
 
-  // 导航
   enterChat: (topicId: string, title: string) => void;
   enterSubChat: (topicId: string, title: string) => void;
   goBack: () => void;
   returnToTree: () => void;
 
-  // 3D视图导航
   enterGalaxy: (galaxyId: string) => void;
   exitGalaxy: () => void;
 
-  // 视图切换
   setViewMode: (mode: ViewMode) => void;
+
+  // 新功能：拖拽排序
+  reorderMessages: (parentId: string | null, messageIds: string[]) => Promise<void>;
+  
+  // 新功能：话题组合（3D视图中Ctrl+拖拽合并）
+  mergeTopics: (sourceTopicId: string, targetTopicId: string) => Promise<void>;
+  
+  // 新功能：更新话题类型
+  updateTopicType: (topicId: string, type: TopicType) => Promise<void>;
 }
 
-// 辅助函数：构建消息树
 function buildMessageTree(messages: AtomMessageData[]): AtomMessageData[] {
   const rootMessages = messages.filter((m) => m.parentId === null);
   return rootMessages.map((root) => buildNestedMessage(root, messages));
@@ -76,13 +77,12 @@ function buildNestedMessage(
   return {
     ...message,
     children: children
-      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+      .sort((a, b) => a.order - b.order)
       .map((child) => buildNestedMessage(child, allMessages)),
   } as AtomMessageData & { children: AtomMessageData[] };
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
-  // 初始状态
   session: null,
   viewMode: "chat",
   isLoading: false,
@@ -93,7 +93,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   currentGalaxyId: null,
   galaxyHistory: [],
 
-  // Actions
   setSession: (session) =>
     set({
       session,
@@ -116,7 +115,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       error: null,
     }),
 
-  // 会话管理
   loadRecentSessions: async () => {
     try {
       const res = await fetch("/api/sessions");
@@ -139,6 +137,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         ...m,
         timestamp: new Date(m.timestamp),
         embedding: m.embedding ? JSON.parse(m.embedding) : null,
+        order: m.order ?? 0,
+        topicType: m.topicType ?? "normal",
       }));
 
       const session: KnowledgeSession = {
@@ -165,7 +165,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  // 消息管理
   addMessage: (message) =>
     set((state) => {
       if (!state.session) return state;
@@ -193,7 +192,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       };
     }),
 
-  // 话题管理
   createTopic: async (title: string, parentId?: string) => {
     const state = get();
     if (!state.session) return;
@@ -208,6 +206,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           role: "topic",
           title,
           parentId: parentId || null,
+          order: 0,
+          topicType: "normal",
         }),
       });
 
@@ -216,6 +216,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const topic: AtomMessageData = {
           ...data.message,
           timestamp: new Date(data.message.timestamp),
+          order: data.message.order ?? 0,
+          topicType: data.message.topicType ?? "normal",
         };
         set((state) => {
           if (!state.session) return state;
@@ -261,7 +263,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  // 导航
   enterChat: (topicId: string, title: string) =>
     set({
       viewMode: "chat",
@@ -298,7 +299,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       navigationStack: [],
     }),
 
-  // 3D视图导航
   enterGalaxy: (galaxyId: string) =>
     set((state) => ({
       galaxyHistory: [...state.galaxyHistory, state.currentGalaxyId || ""],
@@ -315,9 +315,130 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       };
     }),
 
-  // 视图切换
   setViewMode: (mode) => set({ viewMode: mode }),
+
+  // 拖拽排序：重新排序同一父节点下的消息
+  reorderMessages: async (parentId: string | null, messageIds: string[]) => {
+    try {
+      const res = await fetch("/api/messages/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentId, messageIds }),
+      });
+
+      if (res.ok) {
+        set((state) => {
+          if (!state.session) return state;
+          const orderMap = new Map<string, number>();
+          messageIds.forEach((id, index) => orderMap.set(id, index));
+
+          const messages = state.session.messages.map((m) => {
+            if (m.parentId === parentId && orderMap.has(m.id)) {
+              return { ...m, order: orderMap.get(m.id)! };
+            }
+            return m;
+          });
+
+          return {
+            session: {
+              ...state.session,
+              messages,
+              updatedAt: new Date(),
+            },
+          };
+        });
+      }
+    } catch (err) {
+      console.error("Failed to reorder messages:", err);
+    }
+  },
+
+  // 话题组合：将源话题合并到目标话题
+  mergeTopics: async (sourceTopicId: string, targetTopicId: string) => {
+    if (sourceTopicId === targetTopicId) return;
+
+    try {
+      const res = await fetch(`/api/messages/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceTopicId, targetTopicId }),
+      });
+
+      if (res.ok) {
+        set((state) => {
+          if (!state.session) return state;
+
+          const sourceTopic = state.session.messages.find((m) => m.id === sourceTopicId);
+          const targetTopic = state.session.messages.find((m) => m.id === targetTopicId);
+
+          if (!sourceTopic || !targetTopic) return state;
+
+          // 将源话题的所有子消息移动到目标话题
+          const messages = state.session.messages.map((m) => {
+            if (m.parentId === sourceTopicId) {
+              return { ...m, parentId: targetTopicId };
+            }
+            return m;
+          });
+
+          // 将源话题本身也移动到目标话题下作为子话题
+          const updatedMessages = messages.map((m) => {
+            if (m.id === sourceTopicId) {
+              return { ...m, parentId: targetTopicId };
+            }
+            return m;
+          });
+
+          // 将目标话题标记为星系
+          const finalMessages = updatedMessages.map((m) => {
+            if (m.id === targetTopicId && m.role === "topic") {
+              return { ...m, topicType: "galaxy" as TopicType };
+            }
+            return m;
+          });
+
+          return {
+            session: {
+              ...state.session,
+              messages: finalMessages,
+              updatedAt: new Date(),
+            },
+          };
+        });
+      }
+    } catch (err) {
+      console.error("Failed to merge topics:", err);
+    }
+  },
+
+  // 更新话题类型
+  updateTopicType: async (topicId: string, type: TopicType) => {
+    try {
+      const res = await fetch(`/api/messages?id=${topicId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topicType: type }),
+      });
+
+      if (res.ok) {
+        set((state) => {
+          if (!state.session) return state;
+          const messages = state.session.messages.map((m) =>
+            m.id === topicId ? { ...m, topicType: type } : m
+          );
+          return {
+            session: {
+              ...state.session,
+              messages,
+              updatedAt: new Date(),
+            },
+          };
+        });
+      }
+    } catch (err) {
+      console.error("Failed to update topic type:", err);
+    }
+  },
 }));
 
-// 导出辅助函数供外部使用
 export { buildMessageTree };

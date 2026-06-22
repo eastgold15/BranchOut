@@ -3,8 +3,6 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { atomMessages } from "@/db/schema";
 
-// GET /api/messages?sessionId=xxx — 获取整个 session 的所有消息
-// GET /api/messages?id=xxx — 获取单个消息
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -26,7 +24,7 @@ export async function GET(request: Request) {
         .select()
         .from(atomMessages)
         .where(eq(atomMessages.sessionId, sessionId))
-        .orderBy(atomMessages.timestamp);
+        .orderBy(atomMessages.order, atomMessages.timestamp);
 
       return NextResponse.json({ messages });
     }
@@ -44,10 +42,9 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/messages — 创建新消息或话题
 export async function POST(request: Request) {
   try {
-    const { sessionId, content, role, title, parentId, embedding } =
+    const { sessionId, content, role, title, parentId, embedding, order, topicType } =
       await request.json();
 
     if (!(sessionId && role)) {
@@ -67,6 +64,8 @@ export async function POST(request: Request) {
         title: title || "",
         parentId: parentId || null,
         embedding: embedding ? JSON.stringify(embedding) : null,
+        order: order ?? 0,
+        topicType: topicType ?? "normal",
       })
       .returning();
 
@@ -80,7 +79,6 @@ export async function POST(request: Request) {
   }
 }
 
-// PATCH /api/messages?id=xxx — 更新消息
 export async function PATCH(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -91,7 +89,7 @@ export async function PATCH(request: Request) {
     }
 
     const updates = await request.json();
-    const allowedFields = ["content", "title", "parentId", "embedding"];
+    const allowedFields = ["content", "title", "parentId", "embedding", "order", "topicType"];
     const filteredUpdates: Record<string, unknown> = {};
 
     for (const field of allowedFields) {
@@ -127,7 +125,6 @@ export async function PATCH(request: Request) {
   }
 }
 
-// DELETE /api/messages?id=xxx — 删除消息
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);

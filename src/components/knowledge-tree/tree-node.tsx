@@ -6,31 +6,37 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { AtomMessageData } from "@/types";
+import { isGalaxyTopic, hasChildTopics } from "@/types";
 
 interface TreeNodeProps {
   message: AtomMessageData;
   onClick: () => void;
   position: THREE.Vector3;
   isSelected?: boolean;
+  isDragging?: boolean;
+  onRef?: (ref: THREE.Group | null) => void;
 }
 
-/* 话题颜色 */
 const topicColors = {
   shell: "#34D399",
   core: "#6EE7B7",
 };
 
-/* 消息颜色 */
+const galaxyColors = {
+  shell: "#F59E0B",
+  core: "#FBBF24",
+};
+
 const messageColors = {
   user: { shell: "#60A5FA", core: "#93C5FD" },
   assistant: { shell: "#A78BFA", core: "#C4B5FD" },
 };
 
-function getNodeScale(isTopic: boolean): number {
+function getNodeScale(isTopic: boolean, isGalaxy: boolean): number {
+  if (isGalaxy) return 0.8;
   return isTopic ? 0.5 : 0.3;
 }
 
-// ── 模型缓存 ──────────────
 let orangeCachedScene: THREE.Group | null = null;
 let modelLoading = false;
 const loadQueue: Array<(scene: THREE.Group | null) => void> = [];
@@ -90,19 +96,31 @@ function loadOrangeModel(cb: (scene: THREE.Group | null) => void) {
   );
 }
 
-export function TreeNode({ message, position, onClick, isSelected = false }: TreeNodeProps) {
+export function TreeNode({ 
+  message, 
+  position, 
+  onClick, 
+  isSelected = false, 
+  isDragging = false,
+  onRef 
+}: TreeNodeProps) {
   const groupRef = useRef<THREE.Group>(null);
   const coreRef = useRef<THREE.Mesh>(null);
   const ringRef = useRef<THREE.Mesh>(null);
+  const orbitRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
   const [modelScene, setModelScene] = useState<THREE.Group | null>(null);
   const { camera } = useThree();
 
   const isTopic = message.role === "topic";
-  const colors = isTopic
-    ? topicColors
-    : messageColors[message.role as "user" | "assistant"];
-  const nodeScale = useMemo(() => getNodeScale(isTopic), [isTopic]);
+  const isGalaxy = isGalaxyTopic(message);
+  const hasChildrenTopics = hasChildTopics(message);
+  const colors = isGalaxy
+    ? galaxyColors
+    : isTopic
+      ? topicColors
+      : messageColors[message.role as "user" | "assistant"];
+  const nodeScale = useMemo(() => getNodeScale(isTopic, isGalaxy), [isTopic, isGalaxy]);
   const basePosition = useMemo(() => position.clone(), [position]);
 
   const floatRef = useRef({
@@ -120,6 +138,12 @@ export function TreeNode({ message, position, onClick, isSelected = false }: Tre
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (onRef) {
+      onRef(groupRef.current);
+    }
+  }, [onRef]);
 
   const modelClone = useMemo(() => {
     if (!modelScene) return null;
@@ -147,26 +171,50 @@ export function TreeNode({ message, position, onClick, isSelected = false }: Tre
 
     if (coreRef.current) {
       const mat = coreRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = ((isSelected || hovered) ? pulse * 1.2 : pulse * 0.6) * 0.5;
+      mat.opacity = ((isSelected || isDragging || hovered) ? pulse * 1.2 : pulse * 0.6) * 0.5;
     }
 
     if (ringRef.current) {
       ringRef.current.rotation.z = time * 0.6;
       ringRef.current.rotation.x = Math.sin(time * 0.4) * 0.3;
       const ringMat = ringRef.current.material as THREE.MeshBasicMaterial;
-      ringMat.opacity = isSelected ? 0.5 + Math.sin(time * 1.2 + float.offset) * 0.2 : 0;
+      ringMat.opacity = (isSelected || isDragging) ? 0.5 + Math.sin(time * 1.2 + float.offset) * 0.2 : 0;
     }
 
-    const targetPos = basePosition.clone();
-    targetPos.y += floatY;
-    groupRef.current.position.lerp(targetPos, hovered ? 0.2 : 0.08);
+    if (orbitRef.current) {
+      orbitRef.current.rotation.z = time * 0.3;
+      orbitRef.current.rotation.x = Math.sin(time * 0.2) * 0.2;
+    }
+
+    if (!isDragging) {
+      const targetPos = basePosition.clone();
+      targetPos.y += floatY;
+      groupRef.current.position.lerp(targetPos, hovered ? 0.2 : 0.08);
+    }
+
+    if (isDragging && groupRef.current) {
+      groupRef.current.scale.setScalar(nodeScale * 1.3);
+    } else if (groupRef.current) {
+      groupRef.current.scale.setScalar(nodeScale);
+    }
   });
 
   const hasModel = modelClone !== null;
 
   return (
     <group position={basePosition} ref={groupRef}>
-      {/* 3D 模型 */}
+      {isGalaxy && (
+        <mesh ref={orbitRef} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[nodeScale * 2, 0.008, 8, 32]} />
+          <meshBasicMaterial
+            color={galaxyColors.core}
+            depthWrite={false}
+            opacity={0.3}
+            transparent
+          />
+        </mesh>
+      )}
+
       {hasModel && (
         <group
           onClick={(e) => {
@@ -188,7 +236,6 @@ export function TreeNode({ message, position, onClick, isSelected = false }: Tre
         </group>
       )}
 
-      {/* 球体回退 */}
       {!hasModel && (
         <mesh
           onClick={(e) => {
@@ -210,7 +257,7 @@ export function TreeNode({ message, position, onClick, isSelected = false }: Tre
           <meshStandardMaterial
             color={colors.shell}
             emissive={colors.core}
-            emissiveIntensity={0.5}
+            emissiveIntensity={isGalaxy ? 0.8 : 0.5}
             metalness={0.1}
             opacity={0.85}
             roughness={0.3}
@@ -219,7 +266,6 @@ export function TreeNode({ message, position, onClick, isSelected = false }: Tre
         </mesh>
       )}
 
-      {/* 发光核心 */}
       <mesh ref={coreRef}>
         <sphereGeometry args={[nodeScale * 0.5, 16, 16]} />
         <meshBasicMaterial
@@ -230,8 +276,7 @@ export function TreeNode({ message, position, onClick, isSelected = false }: Tre
         />
       </mesh>
 
-      {/* 选中状态光环 */}
-      {isSelected && (
+      {(isSelected || isDragging) && (
         <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
           <torusGeometry args={[nodeScale * 1.4, 0.015, 8, 48]} />
           <meshBasicMaterial
@@ -242,7 +287,18 @@ export function TreeNode({ message, position, onClick, isSelected = false }: Tre
         </mesh>
       )}
 
-      {/* 文字标签 */}
+      {(isGalaxy || hasChildrenTopics) && !isSelected && !isDragging && (
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[nodeScale * 1.1, 0.008, 8, 32]} />
+          <meshBasicMaterial
+            color={colors.core}
+            depthWrite={false}
+            opacity={0.2}
+            transparent
+          />
+        </mesh>
+      )}
+
       <Html
         center
         distanceFactor={14}
@@ -259,6 +315,7 @@ export function TreeNode({ message, position, onClick, isSelected = false }: Tre
             transform: hovered ? "scale(1.2) translateY(-2px)" : "scale(1)",
           }}
         >
+          {isGalaxy && <span className="mr-1">🌌</span>}
           {message.title || message.content.slice(0, 20)}
         </div>
       </Html>
