@@ -11,6 +11,7 @@ interface TreeNodeProps {
   message: AtomMessageData;
   onClick: () => void;
   position: THREE.Vector3;
+  isSelected?: boolean;
 }
 
 /* 话题颜色 */
@@ -89,9 +90,10 @@ function loadOrangeModel(cb: (scene: THREE.Group | null) => void) {
   );
 }
 
-export function TreeNode({ message, position, onClick }: TreeNodeProps) {
+export function TreeNode({ message, position, onClick, isSelected = false }: TreeNodeProps) {
   const groupRef = useRef<THREE.Group>(null);
   const coreRef = useRef<THREE.Mesh>(null);
+  const ringRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
   const [modelScene, setModelScene] = useState<THREE.Group | null>(null);
   const { camera } = useThree();
@@ -145,7 +147,14 @@ export function TreeNode({ message, position, onClick }: TreeNodeProps) {
 
     if (coreRef.current) {
       const mat = coreRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = (hovered ? pulse * 1.2 : pulse * 0.6) * 0.5;
+      mat.opacity = ((isSelected || hovered) ? pulse * 1.2 : pulse * 0.6) * 0.5;
+    }
+
+    if (ringRef.current) {
+      ringRef.current.rotation.z = time * 0.6;
+      ringRef.current.rotation.x = Math.sin(time * 0.4) * 0.3;
+      const ringMat = ringRef.current.material as THREE.MeshBasicMaterial;
+      ringMat.opacity = isSelected ? 0.5 + Math.sin(time * 1.2 + float.offset) * 0.2 : 0;
     }
 
     const targetPos = basePosition.clone();
@@ -220,6 +229,18 @@ export function TreeNode({ message, position, onClick }: TreeNodeProps) {
           transparent
         />
       </mesh>
+
+      {/* 选中状态光环 */}
+      {isSelected && (
+        <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[nodeScale * 1.4, 0.015, 8, 48]} />
+          <meshBasicMaterial
+            color={colors.core}
+            depthWrite={false}
+            transparent
+          />
+        </mesh>
+      )}
 
       {/* 文字标签 */}
       <Html

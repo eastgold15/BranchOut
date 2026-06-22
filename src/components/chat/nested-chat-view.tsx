@@ -63,7 +63,6 @@ function MessageItem({ message, depth = 0 }: MessageItemProps) {
         )}
       </div>
 
-      {/* 子消息 */}
       {hasChildren && isExpanded && (
         <div className="mt-1">
           {message.children?.map((child) => (
@@ -75,16 +74,13 @@ function MessageItem({ message, depth = 0 }: MessageItemProps) {
   );
 }
 
-interface NestedChatViewProps {
-  onTopicSelect?: (topic: AtomMessageData) => void;
-}
-
-export function NestedChatView({ onTopicSelect }: NestedChatViewProps) {
+export function NestedChatView() {
   const session = useSessionStore((s) => s.session);
+  const currentTopicId = useSessionStore((s) => s.currentTopicId);
+  const navigationStack = useSessionStore((s) => s.navigationStack);
+  const enterChat = useSessionStore((s) => s.enterChat);
+  const goBack = useSessionStore((s) => s.goBack);
   const [newMessage, setNewMessage] = useState("");
-  const [selectedTopic, setSelectedTopic] = useState<AtomMessageData | null>(
-    null
-  );
 
   if (!session) {
     return (
@@ -95,7 +91,18 @@ export function NestedChatView({ onTopicSelect }: NestedChatViewProps) {
   }
 
   // 构建消息树
-  const messageTree = session.messages.filter((m) => m.parentId === null);
+  const buildNestedMessages = (parentId: string | null): AtomMessageData[] => {
+    const children = session.messages.filter((m) => m.parentId === parentId);
+    return children
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+      .map((child) => ({
+        ...child,
+        children: buildNestedMessages(child.id),
+      }));
+  };
+
+  const currentTopic = session.messages.find((m) => m.id === currentTopicId);
+  const rootMessages = buildNestedMessages(currentTopicId || null);
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !session) return;
@@ -109,13 +116,12 @@ export function NestedChatView({ onTopicSelect }: NestedChatViewProps) {
           content: newMessage.trim(),
           role: "user",
           title: newMessage.trim().slice(0, 50),
-          parentId: selectedTopic?.id || null,
+          parentId: currentTopicId || null,
         }),
       });
 
       if (response.ok) {
         setNewMessage("");
-        // 刷新会话数据
         useSessionStore.getState().loadSession(session.id);
       }
     } catch (error) {
@@ -123,8 +129,40 @@ export function NestedChatView({ onTopicSelect }: NestedChatViewProps) {
     }
   };
 
+  const handleTopicClick = (topic: AtomMessageData) => {
+    if (topic.role === "topic") {
+      enterChat(topic.id, topic.title);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col">
+      {/* 导航栏 */}
+      {navigationStack.length > 0 && (
+        <div className="border-b border-slate-700 p-3">
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-lg bg-slate-800 px-3 py-1 text-slate-400 text-sm hover:text-white"
+              onClick={goBack}
+            >
+              ← 返回
+            </button>
+            <div className="flex-1 overflow-x-auto">
+              <div className="flex items-center gap-2">
+                {navigationStack.map((item, index) => (
+                  <span key={item.nodeId} className="flex items-center gap-2">
+                    {index > 0 && <span className="text-slate-600">/</span>}
+                    <span className="text-slate-300 text-sm">
+                      {item.title}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 话题选择器 */}
       <div className="border-b border-slate-700 p-3">
         <div className="flex items-center gap-2">
@@ -133,13 +171,16 @@ export function NestedChatView({ onTopicSelect }: NestedChatViewProps) {
             className="rounded border border-slate-600 bg-slate-800 px-2 py-1 text-sm text-white"
             onChange={(e) => {
               const topicId = e.target.value;
-              const topic = session.messages.find((m) => m.id === topicId);
-              setSelectedTopic(topic || null);
-              if (topic && onTopicSelect) {
-                onTopicSelect(topic);
+              if (topicId) {
+                const topic = session.messages.find((m) => m.id === topicId);
+                if (topic) {
+                  enterChat(topic.id, topic.title);
+                }
+              } else {
+                goBack();
               }
             }}
-            value={selectedTopic?.id || ""}
+            value={currentTopicId || ""}
           >
             <option value="">根话题</option>
             {session.messages
@@ -155,12 +196,12 @@ export function NestedChatView({ onTopicSelect }: NestedChatViewProps) {
 
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto p-4">
-        {messageTree.length === 0 ? (
+        {rootMessages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-slate-400">
             <p>暂无消息</p>
           </div>
         ) : (
-          messageTree.map((message) => (
+          rootMessages.map((message) => (
             <MessageItem key={message.id} message={message} />
           ))
         )}

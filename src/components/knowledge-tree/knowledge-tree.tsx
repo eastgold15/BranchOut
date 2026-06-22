@@ -11,10 +11,11 @@ import type { AtomMessageData } from "@/types";
 
 interface TreeSceneProps {
   messages: AtomMessageData[];
+  currentTopicId: string | null;
   onNodeClick: (message: AtomMessageData) => void;
 }
 
-function TreeScene({ messages, onNodeClick }: TreeSceneProps) {
+function TreeScene({ messages, currentTopicId, onNodeClick }: TreeSceneProps) {
   const { branches, nodePositions } = useMemo(
     () => generateTreeModel(messages),
     [messages]
@@ -48,7 +49,6 @@ function TreeScene({ messages, onNodeClick }: TreeSceneProps) {
 
   return (
     <>
-      {/* 环境光 */}
       <ambientLight intensity={0.4} />
       <directionalLight intensity={0.8} position={[10, 10, 5]} />
 
@@ -70,6 +70,7 @@ function TreeScene({ messages, onNodeClick }: TreeSceneProps) {
           message={message}
           position={position}
           onClick={() => onNodeClick(message)}
+          isSelected={id === currentTopicId}
         />
       ))}
 
@@ -98,13 +99,21 @@ function TreeScene({ messages, onNodeClick }: TreeSceneProps) {
 
 export function KnowledgeTree() {
   const session = useSessionStore((s) => s.session);
+  const currentTopicId = useSessionStore((s) => s.currentTopicId);
+  const setViewMode = useSessionStore((s) => s.setViewMode);
+  const enterChat = useSessionStore((s) => s.enterChat);
   const [selectedMessage, setSelectedMessage] = useState<AtomMessageData | null>(
     null
   );
 
   const handleNodeClick = useCallback((message: AtomMessageData) => {
     setSelectedMessage(message);
-  }, []);
+
+    if (message.role === "topic") {
+      enterChat(message.id, message.title);
+      setViewMode("chat");
+    }
+  }, [enterChat, setViewMode]);
 
   if (!session || !session.messages || session.messages.length === 0) {
     return (
@@ -117,7 +126,11 @@ export function KnowledgeTree() {
   return (
     <div className="relative h-full w-full">
       <Canvas camera={{ position: [0, 2, 10], fov: 50 }}>
-        <TreeScene messages={session.messages} onNodeClick={handleNodeClick} />
+        <TreeScene
+          messages={session.messages}
+          currentTopicId={currentTopicId}
+          onNodeClick={handleNodeClick}
+        />
       </Canvas>
 
       {/* 选中节点信息 */}
@@ -146,6 +159,17 @@ export function KnowledgeTree() {
           <p className="text-slate-300 text-sm">
             {selectedMessage.content || "无内容"}
           </p>
+          {selectedMessage.role === "topic" && (
+            <button
+              className="mt-2 rounded-lg bg-sky-600 px-4 py-2 text-sm text-white transition-colors hover:bg-sky-500"
+              onClick={() => {
+                enterChat(selectedMessage.id, selectedMessage.title);
+                setViewMode("chat");
+              }}
+            >
+              进入话题聊天
+            </button>
+          )}
           <button
             className="mt-2 text-slate-400 text-xs hover:text-white"
             onClick={() => setSelectedMessage(null)}
