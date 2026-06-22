@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { embeddingService } from "@/lib/embedding-service";
 import { useSessionStore } from "@/store/sessionStore";
-import type { KnowledgeSession, TopicNodeData } from "@/types";
+import type { AtomMessageData, KnowledgeSession } from "@/types";
 
 export function TopicSelector() {
   const [topic, setTopic] = useState("");
@@ -25,9 +25,7 @@ export function TopicSelector() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!topic.trim()) {
-      return;
-    }
+    if (!topic.trim()) return;
 
     setIsLoading(true);
     setLoading(true);
@@ -40,49 +38,37 @@ export function TopicSelector() {
         body: JSON.stringify({ topic: topic.trim() }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to create session");
-      }
+      if (!response.ok) throw new Error("Failed to create session");
 
       const data = await response.json();
 
-      const nodesMap = new Map<string, TopicNodeData>();
-      for (const node of data.nodes as TopicNodeData[]) {
-        nodesMap.set(node.id, node);
+      // 加载嵌入模型并计算所有话题的 embedding
+      setLoadMsg("正在加载嵌入模型（首次需下载 23MB）...");
+      await embeddingService.loadModel();
+
+      setLoadMsg("正在计算知识点向量...");
+      const messages: AtomMessageData[] = [];
+
+      for (const msg of data.messages || []) {
+        const embedding = await embeddingService.encode(msg.title);
+        messages.push({
+          ...msg,
+          timestamp: new Date(msg.timestamp),
+          embedding,
+        });
       }
 
       const session: KnowledgeSession = {
         id: data.sessionId,
         rootTopic: topic.trim(),
+        userId: "anonymous",
         status: "active",
-        nodes: nodesMap,
-        rootNodeId: data.rootNodeId,
-        currentFocusNodeId: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        messages,
       };
 
-      // 加载嵌入模型并计算所有节点的 embedding
-      setLoadMsg("正在加载嵌入模型（首次需下载 23MB）...");
-      await embeddingService.loadModel();
-
-      setLoadMsg("正在计算知识点向量...");
-      const sessionWithEmbeddings: KnowledgeSession = {
-        ...session,
-        nodes: new Map(),
-      };
-
-      for (const [id, node] of nodesMap) {
-        const embedding = await embeddingService.encode(
-          `${node.title} ${node.content}`
-        );
-        sessionWithEmbeddings.nodes.set(id, {
-          ...node,
-          embedding,
-        });
-      }
-
-      setSession(sessionWithEmbeddings);
+      setSession(session);
     } catch (error) {
       console.error("Failed to create session:", error);
       setError("创建学习会话失败，请重试");

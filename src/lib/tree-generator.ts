@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { TopicNodeData } from "@/types";
+import type { AtomMessageData } from "@/types";
 
 interface Branch {
   depth: number;
@@ -10,7 +10,7 @@ interface Branch {
 
 interface TreeNodePosition {
   id: string;
-  node: TopicNodeData;
+  message: AtomMessageData;
   position: THREE.Vector3;
 }
 
@@ -18,15 +18,18 @@ interface TreeNodePosition {
  * 递归分支算法生成真实树模型
  * 使用 L-system 风格的递归分形树
  */
-export function generateTreeModel(nodes: Map<string, TopicNodeData>): {
+export function generateTreeModel(messages: AtomMessageData[]): {
   branches: Branch[];
   nodePositions: TreeNodePosition[];
 } {
   const branches: Branch[] = [];
   const nodePositions: TreeNodePosition[] = [];
 
-  const rootNode = Array.from(nodes.values()).find((n) => n.depth === 0);
-  if (!rootNode) {
+  // 找到根话题（parentId === null && role === "topic")
+  const rootTopic = messages.find(
+    (m) => m.parentId === null && m.role === "topic"
+  );
+  if (!rootTopic) {
     return { branches, nodePositions };
   }
 
@@ -41,24 +44,25 @@ export function generateTreeModel(nodes: Map<string, TopicNodeData>): {
   });
 
   nodePositions.push({
-    id: rootNode.id,
+    id: rootTopic.id,
     position: trunkTop.clone(),
-    node: rootNode,
+    message: rootTopic,
   });
 
-  const childNodes = Array.from(nodes.values()).filter(
-    (n) => n.parentId === rootNode.id
+  // 找到根话题的子话题
+  const childTopics = messages.filter(
+    (m) => m.parentId === rootTopic.id && m.role === "topic"
   );
 
-  if (childNodes.length === 0) {
+  if (childTopics.length === 0) {
     return { branches, nodePositions };
   }
 
-  const angleStep = (Math.PI * 2) / childNodes.length;
+  const angleStep = (Math.PI * 2) / childTopics.length;
   const baseRadius = 2.5;
   const heightRange = 4;
 
-  for (const [index, childNode] of childNodes.entries()) {
+  for (const [index, childTopic] of childTopics.entries()) {
     const baseAngle = angleStep * index + (Math.random() - 0.5) * 0.3;
 
     const branchEnd = new THREE.Vector3(
@@ -75,13 +79,14 @@ export function generateTreeModel(nodes: Map<string, TopicNodeData>): {
     });
 
     nodePositions.push({
-      id: childNode.id,
+      id: childTopic.id,
       position: branchEnd.clone(),
-      node: childNode,
+      message: childTopic,
     });
 
-    const grandChildren = Array.from(nodes.values()).filter(
-      (n) => n.parentId === childNode.id
+    // 找到子话题的子话题
+    const grandChildren = messages.filter(
+      (m) => m.parentId === childTopic.id && m.role === "topic"
     );
 
     if (grandChildren.length > 0) {
@@ -91,7 +96,8 @@ export function generateTreeModel(nodes: Map<string, TopicNodeData>): {
         grandChildren,
         2,
         branches,
-        nodePositions
+        nodePositions,
+        messages
       );
     }
   }
@@ -102,20 +108,21 @@ export function generateTreeModel(nodes: Map<string, TopicNodeData>): {
 function generateSubBranches(
   parentEnd: THREE.Vector3,
   parentAngle: number,
-  childNodes: TopicNodeData[],
+  childTopics: AtomMessageData[],
   depth: number,
   branches: Branch[],
-  nodePositions: TreeNodePosition[]
+  nodePositions: TreeNodePosition[],
+  allMessages: AtomMessageData[]
 ) {
   const spreadAngle = Math.PI * 0.6;
   const branchLength = 1.8 - depth * 0.3;
   const thickness = 0.04 - depth * 0.01;
 
-  for (const [index, childNode] of childNodes.entries()) {
+  for (const [index, childTopic] of childTopics.entries()) {
     const angleOffset =
-      childNodes.length === 1
+      childTopics.length === 1
         ? 0
-        : (index / (childNodes.length - 1) - 0.5) * spreadAngle;
+        : (index / (childTopics.length - 1) - 0.5) * spreadAngle;
 
     const angle = parentAngle + angleOffset + (Math.random() - 0.5) * 0.2;
     const elevation = (Math.random() - 0.3) * 1.5;
@@ -134,12 +141,16 @@ function generateSubBranches(
     });
 
     nodePositions.push({
-      id: childNode.id,
+      id: childTopic.id,
       position: branchEnd.clone(),
-      node: childNode,
+      message: childTopic,
     });
 
-    const grandChildren: TopicNodeData[] = [];
+    // 找到子话题的子话题
+    const grandChildren = allMessages.filter(
+      (m) => m.parentId === childTopic.id && m.role === "topic"
+    );
+
     if (grandChildren.length > 0) {
       generateSubBranches(
         branchEnd,
@@ -147,7 +158,8 @@ function generateSubBranches(
         grandChildren,
         depth + 1,
         branches,
-        nodePositions
+        nodePositions,
+        allMessages
       );
     }
   }

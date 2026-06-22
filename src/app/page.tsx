@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { NestedChatView } from "@/components/chat/nested-chat-view";
 import { KnowledgeTree } from "@/components/knowledge-tree/knowledge-tree";
 import { TopicSelector } from "@/components/topic-selector";
-import { ViewSelector } from "@/components/view-selector";
+
 import { useSessionStore } from "@/store/sessionStore";
 
 export default function Home() {
@@ -71,7 +71,7 @@ export default function Home() {
 
             {/* 3D 树 */}
             <div className="relative z-10 size-full">
-              <ViewSelector />
+
               <div className="size-full">
                 <KnowledgeTree />
               </div>

@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+// 会话表
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
   rootTopic: text("root_topic").notNull(),
@@ -16,134 +17,50 @@ export const sessions = sqliteTable("sessions", {
     .$defaultFn(() => new Date()),
 });
 
-export const topicNodes = sqliteTable("topic_nodes", {
+// AtomMessage 单表设计
+// role = "topic" → 话题（可以有 children）
+// role = "user" 或 "assistant" → 消息（属于某个话题）
+// parentId = null → 根话题
+// parentId = 话题id → 属于该话题的消息或子话题
+export const atomMessages = sqliteTable("atom_messages", {
   id: text("id").primaryKey(),
   sessionId: text("session_id")
     .notNull()
     .references(() => sessions.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  content: text("content").notNull().default(""),
-  parentId: text("parent_id"),
-  depth: integer("depth").notNull().default(0),
-  embedding: text("embedding"), // JSON: "[0.023,-0.056,...]" 384维向量
-  offset: text("offset").default("[0,0,0]"), // JSON: [x, y, z] 用户拖拽偏移
-  status: text("status", {
-    enum: ["untouched", "mentioned", "explored", "mastered", "weak"],
-  })
-    .notNull()
-    .default("untouched"),
-  source: text("source", {
-    enum: ["ai-init", "user-mention", "ai-correction"],
-  })
-    .notNull()
-    .default("ai-init"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
-
-export const chatMessages = sqliteTable("chat_messages", {
-  id: text("id").primaryKey(),
-  nodeId: text("node_id")
-    .notNull()
-    .references(() => topicNodes.id, { onDelete: "cascade" }),
-  role: text("role", { enum: ["user", "assistant"] }).notNull(),
   content: text("content").notNull(),
-  type: text("type", {
-    enum: ["text", "correction", "question", "summary"],
-  })
-    .notNull()
-    .default("text"),
-  spawnedNodeId: text("spawned_node_id"),
+  role: text("role", { enum: ["user", "assistant", "topic"] }).notNull(),
   timestamp: integer("timestamp", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
+  title: text("title").notNull().default(""), // 简述目的（AI生成）
+  embedding: text("embedding"), // JSON: "[0.023,-0.056,...]" 384维向量
+  parentId: text("parent_id"), // null 表示根话题，有值表示属于某个话题
 });
 
+// 会话关系
 export const sessionsRelations = relations(sessions, ({ many }) => ({
-  nodes: many(topicNodes),
+  messages: many(atomMessages),
 }));
 
-export const topicNodesRelations = relations(topicNodes, ({ one, many }) => ({
+// AtomMessage 关系
+export const atomMessagesRelations = relations(atomMessages, ({ one, many }) => ({
   session: one(sessions, {
-    fields: [topicNodes.sessionId],
+    fields: [atomMessages.sessionId],
     references: [sessions.id],
   }),
-  parent: one(topicNodes, {
-    fields: [topicNodes.parentId],
-    references: [topicNodes.id],
+  parent: one(atomMessages, {
+    fields: [atomMessages.parentId],
+    references: [atomMessages.id],
   }),
-  messages: many(chatMessages),
+  children: many(atomMessages),
 }));
 
-export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
-  node: one(topicNodes, {
-    fields: [chatMessages.nodeId],
-    references: [topicNodes.id],
-  }),
-}));
-
-// 视角（View）- 用户创建的自定义知识结构
-export const views = sqliteTable("views", {
-  id: text("id").primaryKey(),
-  sessionId: text("session_id")
-    .notNull()
-    .references(() => sessions.id, { onDelete: "cascade" }),
-  name: text("name").notNull(), // 用户定义的视角名称
-  type: text("type").notNull().default("custom"), // preset 或 custom
-  // segments 是自定义视角的节点分组，格式: [{ title, nodeIds: [] }]
-  segments: text("segments").notNull().default("[]"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
-
-export const viewGroups = sqliteTable("view_groups", {
-  id: text("id").primaryKey(),
-  viewId: text("view_id")
-    .notNull()
-    .references(() => views.id, { onDelete: "cascade" }),
-  parentId: text("parent_id"),
-  title: text("title").notNull(),
-  nodeIds: text("node_ids").notNull().default("[]"),
-  color: text("color").notNull().default("#60A5FA"),
-  position: integer("position").notNull().default(0),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
-
-export const viewsRelations = relations(views, ({ one, many }) => ({
-  session: one(sessions, {
-    fields: [views.sessionId],
-    references: [sessions.id],
-  }),
-  groups: many(viewGroups),
-}));
-
-export const viewGroupsRelations = relations(viewGroups, ({ one }) => ({
-  view: one(views, {
-    fields: [viewGroups.viewId],
-    references: [views.id],
-  }),
-}));
-
+// 类型导出
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
-export type TopicNode = typeof topicNodes.$inferSelect;
-export type NewTopicNode = typeof topicNodes.$inferInsert;
-export type ChatMessage = typeof chatMessages.$inferSelect;
-export type NewChatMessage = typeof chatMessages.$inferInsert;
-export type View = typeof views.$inferSelect;
-export type NewView = typeof views.$inferInsert;
-export type ViewGroup = typeof viewGroups.$inferSelect;
-export type NewViewGroup = typeof viewGroups.$inferInsert;
+export type AtomMessage = typeof atomMessages.$inferSelect;
+export type NewAtomMessage = typeof atomMessages.$inferInsert;
+
+// 辅助类型
+export type Topic = AtomMessage & { role: "topic" };
+export type ChatMessage = AtomMessage & { role: "user" | "assistant" };

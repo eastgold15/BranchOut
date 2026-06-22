@@ -1,51 +1,38 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { chatMessages, topicNodes } from "@/db/schema";
+import { atomMessages } from "@/db/schema";
 
-// GET /api/messages?nodeId=xxx — 获取某个话题的消息
-// GET /api/messages?sessionId=xxx — 获取整个 session 的所有消息（用于 Feishu 话题视图）
+// GET /api/messages?sessionId=xxx — 获取整个 session 的所有消息
+// GET /api/messages?id=xxx — 获取单个消息
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const nodeId = searchParams.get("nodeId");
     const sessionId = searchParams.get("sessionId");
+    const id = searchParams.get("id");
 
-    if (nodeId) {
+    if (id) {
+      const message = await db
+        .select()
+        .from(atomMessages)
+        .where(eq(atomMessages.id, id))
+        .limit(1);
+
+      return NextResponse.json({ message: message[0] || null });
+    }
+
+    if (sessionId) {
       const messages = await db
         .select()
-        .from(chatMessages)
-        .where(eq(chatMessages.nodeId, nodeId))
-        .orderBy(chatMessages.timestamp);
+        .from(atomMessages)
+        .where(eq(atomMessages.sessionId, sessionId))
+        .orderBy(atomMessages.timestamp);
 
       return NextResponse.json({ messages });
     }
 
-    if (sessionId) {
-      // 先查该 session 下所有话题节点
-      const nodes = await db
-        .select({ id: topicNodes.id })
-        .from(topicNodes)
-        .where(eq(topicNodes.sessionId, sessionId));
-
-      const nodeIds = nodes.map((n) => n.id);
-
-      if (nodeIds.length === 0) {
-        return NextResponse.json({ messages: [] });
-      }
-
-      // 查所有话题的所有消息
-      const messages = await db
-        .select()
-        .from(chatMessages)
-        .where(inArray(chatMessages.nodeId, nodeIds))
-        .orderBy(chatMessages.timestamp);
-
-      return NextResponse.json({ messages, nodes });
-    }
-
     return NextResponse.json(
-      { error: "nodeId or sessionId is required" },
+      { error: "sessionId or id is required" },
       { status: 400 }
     );
   } catch (error) {
@@ -57,27 +44,29 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/messages
+// POST /api/messages — 创建新消息或话题
 export async function POST(request: Request) {
   try {
-    const { nodeId, role, content, type, spawnedNodeId } = await request.json();
+    const { sessionId, content, role, title, parentId, embedding } =
+      await request.json();
 
-    if (!(nodeId && role && content)) {
+    if (!(sessionId && role)) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required fields: sessionId, role" },
         { status: 400 }
       );
     }
 
     const result = await db
-      .insert(chatMessages)
+      .insert(atomMessages)
       .values({
         id: crypto.randomUUID(),
-        nodeId,
+        sessionId,
+        content: content || "",
         role,
-        content,
-        type: type || "text",
-        spawnedNodeId: spawnedNodeId || null,
+        title: title || "",
+        parentId: parentId || null,
+        embedding: embedding ? JSON.stringify(embedding) : null,
       })
       .returning();
 
@@ -86,6 +75,75 @@ export async function POST(request: Request) {
     console.error("Save message error:", error);
     return NextResponse.json(
       { error: "Failed to save message" },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH /api/messages?id=xxx — 更新消息
+export async function PATCH(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+
+    const updates = await request.json();
+    const allowedFields = ["content", "title", "parentId", "embedding"];
+    const filteredUpdates: Record<string, unknown> = {};
+
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        filteredUpdates[field] = updates[field];
+      }
+    }
+
+    if (filteredUpdates.embedding !== undefined) {
+      filteredUpdates.embedding = JSON.stringify(filteredUpdates.embedding);
+    }
+
+    if (Object.keys(filteredUpdates).length === 0) {
+      return NextResponse.json(
+        { error: "No valid fields to update" },
+        { status: 400 }
+      );
+    }
+
+    const result = await db
+      .update(atomMessages)
+      .set(filteredUpdates)
+      .where(eq(atomMessages.id, id))
+      .returning();
+
+    return NextResponse.json({ message: result[0] });
+  } catch (error) {
+    console.error("Update message error:", error);
+    return NextResponse.json(
+      { error: "Failed to update message" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE /api/messages?id=xxx — 删除消息
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+
+    await db.delete(atomMessages).where(eq(atomMessages.id, id));
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Delete message error:", error);
+    return NextResponse.json(
+      { error: "Failed to delete message" },
       { status: 500 }
     );
   }

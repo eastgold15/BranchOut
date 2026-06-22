@@ -2,380 +2,212 @@
 
 ## 核心理念
 
-**ChatMessage 和 Topic 是同一个数据结构在不同场景下的视图。**
+**AtomMessage 和 Topic 是同一个数据结构在不同场景下的视图。**
 
-- UMessage = 统一消息（最小原子）
-- Topic = 有 children 的 UMessage
-- ChatMessage = 没有 children 的 UMessage
+- AtomMessage = 原子消息（不可变）
+- Topic = 有 children 的 AtomMessage
+- ChatMessage = 没有 children 的 AtomMessage
 
-同一个 UMessage 数据，可以渲染为：
-- 聊天视图的话题树
-- 3D 视图的星球/星系
-
-## 数据层级
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  第一层：原子层（AtomMessage）                                │
-│  不可变，只增不改，永远保留                                   │
-├─────────────────────────────────────────────────────────────┤
-│  原始属性：id, content, role, timestamp                     │
-│  增强属性：title（简述目的）, embedding（语义向量）          │
-└─────────────────────────────────────────────────────────────┘
-                            ↓ 函数式转换
-┌─────────────────────────────────────────────────────────────┐
-│  第二层：统一层（UMessage）                                  │
-│  可变，可重建，可更新                                        │
-├─────────────────────────────────────────────────────────────┤
-│  原子层 + 话题关系 + 3D渲染 + 状态                          │
-└─────────────────────────────────────────────────────────────┘
-                            ↓ AI管理
-┌─────────────────────────────────────────────────────────────┐
-│  第三层：话题层（Topic = 有children的UMessage）              │
-│  AI自动聚类，用户可手动调整                                   │
-└─────────────────────────────────────────────────────────────┘
-                            ↓ 函数式转换
-┌─────────────────────────────────────────────────────────────┐
-│  第四层：视图层（Views + Groups）                            │
-│  话题的不同组织方式                                          │
-└─────────────────────────────────────────────────────────────┘
-```
+**一种数据结构，两种 UI：**
+- 聊天视图:飞书式嵌套话题聊天
+- 3D 视图：星系嵌套可视化
 
 ## 数据结构
 
-### 第一层：原子层（不可变）
+### AtomMessage（原子消息，不可变）
 
 ```typescript
 interface AtomMessage {
-  id: string;
+  id: string;                  // 唯一ID
   sessionId: string;
   content: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant";  // 角色：用户或AI
   timestamp: Date;
 
-  title: string;              // 简述目的（AI生成）
-  embedding: number[];        // 语义向量（384维）
+  title: string;               // 简述目的（AI生成）
+  embedding: number[];          // 语义向量（384维）
+
+  children?: AtomMessage[];     // 有children就是话题，没有就是消息
 }
 ```
 
-### 第二层：统一层
+### Topic = 有 children 的 AtomMessage
 
-```typescript
-interface UMessage extends AtomMessage {
-  // 话题关系（AI管理）
-  topicId: string | null;     // 归属话题
-  replyTo: string | null;     // 回复哪条消息
-  relatedTo: string[];        // 相关消息
+- **没有 children** → 单条消息（ChatMessage）
+- **有 children** → 话题（Topic）
+- **children 的顺序 = 对话的顺序**（按 timestamp 排列）
+- 话题可以嵌套（children 里的 AtomMessage 也可以有 children）
 
-  // 嵌套结构（AI管理，用户可调整）
-  parentId: string | null;    // 父UMessage
-  children?: UMessage[];      // 子UMessage
+### 示例
 
-  // 3D渲染
-  position: [number, number, number];
-  scale: number;
-  offset?: [number, number, number];
-  rotation?: [number, number, number];
-  visible?: boolean;
+```
+Topic: 反函数（AtomMessage 有 children）
+  ├── AtomMessage 1: user "反函数是什么？" (timestamp: 10:00)
+  ├── AtomMessage 2: assistant "反函数就是..." (timestamp: 10:01)
+  ├── AtomMessage 3: user "为什么单调函数有反函数？" (timestamp: 10:02)
+  └── AtomMessage 4: assistant "因为..." (timestamp: 10:03)
 
-  // 外观状态
-  status?: "untouched" | "mentioned" | "explored" | "mastered" | "weak";
-  isGalaxy?: boolean;
-  isCollapsed?: boolean;
-
-  // 视角分组
-  groupIds?: string[];
-
-  // 时间
-  createdAt: Date;
-  updatedAt: Date;
-}
+children 的顺序就是对话顺序。
 ```
 
-### 视图层
+## 天干地支五阶段（AI 提示词策略）
 
-```typescript
-interface View {
-  id: string;
-  name: string;
-  topicIds: string[];
-  groupIds: string[];
-}
+天干地支不是数据结构，而是 **AI 的提示词策略**，告诉 AI 如何判断话题边界和生长阶段。
 
-interface ViewGroup {
-  id: string;
-  viewId: string;
-  title: string;
-  nodeIds: string[];
-  color: string;
-  position: number;
-}
+| 阶段 | 代码 | 对话中的样子 | 例子 |
+|------|------|-------------|------|
+| **甲（萌发）** | jia | 学生提到一个新概念，或问一个新问题 | "那反函数是什么？" |
+| **乙（展开）** | yi | 开始讨论，交换信息，有问有答 | "反函数就是把输入输出互换" |
+| **丙（深入）** | bing | 追问机制、因果、关联——"为什么" | "为什么单调函数一定有反函数？" |
+| **丁（关联）** | ding | 把当前概念和已有知识连起来 | "哦，那单调性和一一对应是一回事啊" |
+| **戊（收敛）** | wu | 理解达成，讨论自然结束 | "明白了" "差不多了" |
+
+### AI 的任务
+
+1. **拆分**：如果用户一条消息包含多个问题，拆分成多个 Q&A 对
+2. **归类**：把每个 AtomMessage 归到对应的话题（设置 children）
+3. **判断生长阶段**：判断当前话题处于哪个生长阶段
+4. **检测话题边界**：检测是否出现新的甲阶段（跳话题）
+5. **构建嵌套结构**：检测话题之间的父子关系
+
+### 划分规则（AI 提示词）
+
+- 一个原子话题 = 至少经历了 **甲→乙** 的完整生长段（只萌发没展开的不算）
+- 两个话题的边界 = **新的甲阶段出现**（学生提出了一个与当前话题不同的新方向）
+- **聊出去的内容**（侧枝）也是一次完整的生长，不要扔掉
+- **回头聊**之前的话题 → 归到已有话题，不新建
+- **性质转变**：如果一个段里包含了两个可独立检验的概念，检查中间是否有性质转变
+  - 有转变 → 拆成两个
+  - 没有转变 → 就是一个，保持完整
+
+## 视图渲染
+
+### 聊天视图（飞书式嵌套）
+
+```
+┌──────────────────────────────┐
+│ 📌 反函数 [展开]              │
+│   用户：那反函数是什么？       │
+│   AI：反函数就是把输入输出互换 │
+│   📎 单调性（关联）[展开]     │
+│     用户：为什么单调函数一定有反函数？ │
+│     AI：因为单调函数是一一对应的... │
+│ 📌 定义域 [折叠]              │
+│ 📌 值域 [折叠]                │
+│                              │
+│ [反函数] 输入... [发送]       │
+└──────────────────────────────┘
 ```
 
-## 函数式流水线
+渲染逻辑：
+- 遍历 AtomMessage 树
+- 有 children → 显示为话题（可折叠/展开）
+- 没有 children → 显示为消息
+- children 按 timestamp 排序显示
 
-### 接口抽象
+### 3D视图（星系嵌套）
 
-```typescript
-// 步骤1：原始 → 原子层
-type AtomizeFn = (raw: { content: string; role: "user" | "assistant"; timestamp: Date }) => Promise<AtomMessage>;
-
-// 步骤2：原子层 → 统一层
-type UnifyFn = (atom: AtomMessage) => Promise<UMessage>;
-
-// 步骤3：统一层 → 话题检测
-type DetectTopicFn = (uMessages: UMessage[]) => Promise<{ topicId: string; replyTo: string | null; relatedTo: string[] }[]>;
-
-// 步骤4：话题检测 → 话题聚合
-type AggregateFn = (uMessages: UMessage[]) => Promise<UMessage[]>;
-
-// 步骤5：话题聚合 → 视图生成
-type GenerateViewsFn = (uMessages: UMessage[]) => Promise<View[]>;
+```
+AtomMessage.children === undefined → 星球（ChatMessage）
+AtomMessage.children && children.length > 0 → 星系（Topic）
+  ├── 星系大小 = children.length
+  └── 星系位置 = embedding 计算（相似话题靠近）
 ```
 
-### 流水线定义
+渲染逻辑：
+- 遍历 AtomMessage 树
+- 有 children → 显示为星系
+- 没有 children → 显示为星球
+- 星系大小由 children.length 决定
+- 星系位置由 embedding 计算（相似话题在空间中靠近）
 
-```typescript
-interface Pipeline {
-  name: string;
-  steps: {
-    atomize: AtomizeFn;
-    unify: UnifyFn;
-    detectTopic: DetectTopicFn;
-    aggregate: AggregateFn;
-    generateViews: GenerateViewsFn;
-  };
-}
+### 进入/退出星系
+
 ```
-
-### 默认实现
-
-```typescript
-const defaultPipeline: Pipeline = {
-  name: "default",
-  steps: {
-    // 步骤1：生成原子层
-    atomize: async (raw) => ({
-      id: nanoid(),
-      sessionId: currentSessionId,
-      content: raw.content,
-      role: raw.role,
-      timestamp: raw.timestamp,
-      title: await generateTitle(raw.content),
-      embedding: await generateEmbedding(raw.content),
-    }),
-
-    // 步骤2：生成统一层
-    unify: async (atom) => ({
-      ...atom,
-      topicId: null,
-      replyTo: null,
-      relatedTo: [],
-      parentId: null,
-      position: await calculatePosition(atom.embedding),
-      scale: 1,
-      offset: [0, 0, 0],
-      visible: true,
-      status: "untouched",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }),
-
-    // 步骤3：话题检测（天干地支规则）
-    detectTopic: async (uMessages) => {
-      return await detectTopicsByTianganDizhi(uMessages);
-    },
-
-    // 步骤4：话题聚合（基于embedding聚类）
-    aggregate: async (uMessages) => {
-      return await aggregateByEmbedding(uMessages);
-    },
-
-    // 步骤5：视图生成
-    generateViews: async (uMessages) => {
-      return await generateAllViews(uMessages);
-    },
-  },
-};
-```
-
-### 流水线执行
-
-```typescript
-// 实时执行（单条消息）
-async function processMessage(
-  raw: { content: string; role: "user" | "assistant" },
-  pipeline: Pipeline
-): Promise<UMessage> {
-  const atom = await pipeline.steps.atomize(raw);
-  const unified = await pipeline.steps.unify(atom);
-
-  const history = await getHistoryMessages();
-  const allMessages = [...history, unified];
-
-  const topicInfo = await pipeline.steps.detectTopic(allMessages);
-  unified.topicId = topicInfo[topicInfo.length - 1].topicId;
-  unified.replyTo = topicInfo[topicInfo.length - 1].replyTo;
-  unified.relatedTo = topicInfo[topicInfo.length - 1].relatedTo;
-
-  await pipeline.steps.aggregate(allMessages);
-  await pipeline.steps.generateViews(allMessages);
-
-  return unified;
-}
-
-// 批量执行（重建）
-async function rebuildPipeline(
-  atomMessages: AtomMessage[],
-  pipeline: Pipeline
-): Promise<{ unified: UMessage[]; views: View[] }> {
-  const unified = await Promise.all(atomMessages.map(atom => pipeline.steps.unify(atom)));
-  const topicInfo = await pipeline.steps.detectTopic(unified);
-
-  unified.forEach((m, i) => {
-    m.topicId = topicInfo[i].topicId;
-    m.replyTo = topicInfo[i].replyTo;
-    m.relatedTo = topicInfo[i].relatedTo;
-  });
-
-  const aggregated = await pipeline.steps.aggregate(unified);
-  const views = await pipeline.steps.generateViews(aggregated);
-
-  return { unified: aggregated, views };
-}
+点击星系 → 进入（放大，显示其children）
+点击空白/返回 → 退出（缩小，显示父级）
 ```
 
 ## Embedding 的作用
 
-### 在嵌套结构中的作用
+### 仅用于 3D 布局
+
+Embedding 不用于话题划分（由天干地支策略负责），仅用于：
 
 | 作用 | 说明 |
-|------|------|
-| **语义相似度计算** | 判断两条消息是否相关 |
-| **自动话题检测** | 基于语义判断是否跳话题 |
-| **话题聚合** | 相似的消息聚合成话题 |
-| **话题层级** | 相似的话题组成更大的话题 |
-| **3D布局** | 相似的消息在空间中靠近 |
-| **关系发现** | 发现消息/话题间的潜在关联 |
+|------|------|)
+| **3D布局** | 相似的消息/话题在空间中靠近 |
+| **关系发现** | 发现消息/话题间的潜在关联（提示用户） |
 
-### 具体工作流程
+### 3D 位置计算
 
-```
-1. 每条消息生成 embedding
-2. 计算新消息与所有历史消息的相似度
-3. 相似度 > 阈值 → 归到同一话题
-4. 相似度 < 阈值 → 新建话题或提示用户
-5. 话题的 embedding = children 的平均 embedding
-6. 话题间相似度计算 → 组成话题层级
+```typescript
+// 星系的位置 = embedding 向量映射到 3D 空间
+// 相似话题在空间中靠近（embedding 距离小）
+// 星系大小 = children.length * 基础大小
 ```
 
-## AI 的管理范围
+## 用户可干预
 
-### AI 负责的
+虽然 AI 自动归类，但用户可以手动调整：
 
-| 任务 | 说明 |
+| 操作 | 说明 |
 |------|------|
-| **消息归属** | 每条消息属于哪个话题 |
-| **话题层级** | 话题属于哪个更大的话题 |
-| **关系发现** | 消息/话题间的关联 |
-| **标题生成** | 为话题生成标题 |
-| **跳话题检测** | 实时检测话题转移 |
-| **合并/拆分建议** | 建议话题合并或拆分 |
-
-### 用户负责的
-
-| 任务 | 说明 |
-|------|------|
-| **修改归属** | 手动调整消息的话题归属 |
-| **调整层级** | 拖拽调整话题层级 |
-| **创建话题** | 手动创建话题 |
+| **移动消息** | 把消息从一个话题拖到另一个话题 |
+| **合并话题** | 把两个话题合并成一个 |
+| **拆分话题** | 把一个话题拆成两个 |
+| **创建话题** | 手动创建新话题 |
 | **删除话题** | 手动删除话题 |
-| **编辑标题** | 手动编辑标题 |
-| **自定义分组** | 创建自定义分组 |
+| **调整层级** | 拖拽调整话题的父子关系 |
+| **编辑标题** | 手动编辑话题标题 |
+
+## Markdown 导出（Slidev PPT）
+
+### 导出格式
+
+```markdown
+---
+layout: cover
+---
+
+# {{ rootTopic.title }}
+
+---
+
+## {{ topic.title }}
+
+{{ topic.messages }}
+
+---
+
+## {{ subTopic.title }}
+
+{{ subTopic.messages }}
+
+---
+
+## 总结
+
+{{ summary }}
+```
+
+### 导出流程
+
+```
+1. 遍历 AtomMessage 树结构
+2. 每个话题（有children）生成一张幻灯片
+3. 子话题嵌套在父话题下
+4. 导出为 Markdown 文件
+5. 使用 Slidev 转换为 PPT
+```
 
 ## 核心原则
 
 | 原则 | 说明 |
 |------|------|
-| **原子层不可变** | AtomMessage 只增不改 |
-| **统一层可重建** | UMessage 可以用原子层重新计算 |
-| **AI 自动管理** | 话题关系由 AI 自动处理 |
+| **AtomMessage不可变** | 原始消息只增不改 |
+| **话题可重建** | 可以用 AtomMessage 重新计算 |
+| **天干地支为策略** | AI 提示词策略，不是数据结构 |
+| **Embedding为辅** | 仅用于3D布局和关系发现 |
 | **用户可干预** | 用户可以手动调整所有关系 |
-| **视图不污染结构** | Views 只是额外的组织方式 |
-| **流水线可替换** | 每个步骤可独立替换 |
-
-## 实现计划
-
-### 阶段1：设计新表
-- [ ] 设计 `atom_messages` 表（不可变）
-- [ ] 设计 `unified_messages` 表（可变）
-
-### 阶段2：迁移数据
-- [ ] 迁移 `chat_messages` → `atom_messages`
-- [ ] 迁移 `topic_nodes` → `unified_messages`
-
-### 阶段3：实现流水线
-- [ ] 实现 `atomize` 步骤
-- [ ] 实现 `unify` 步骤
-- [ ] 实现 `detectTopic` 步骤（天干地支规则）
-- [ ] 实现 `aggregate` 步骤（embedding聚类）
-- [ ] 实现 `generateViews` 步骤
-
-### 阶段4：统一视图
-- [ ] 聊天视图：基于 children 渲染树
-- [ ] 3D 视图：基于 position/scale/isGalaxy 渲染
-
-### 阶段5：用户交互
-- [ ] 拖拽调整 position/offset
-- [ ] 拖拽重组父子关系
-- [ ] 进入/退出星系
-- [ ] 展开/折叠 children
-
-## 3D视图渲染规则
-
-### 星球 vs 星系
-```
-children.length === 0 → 星球（ChatMessage）
-children.length > 0 → 根据 scale 判断：
-  ├── scale < 星系阈值 → 小星球（小Topic）
-  └── scale >= 星系阈值 → 星系（大Topic）
-```
-
-### 可见性过滤
-```
-当前在星系内 → 只显示 children
-当前在星系外 → 只显示直接 children 和星系统一显示
-```
-
-### 进入/退出星系
-```
-点击星球 → 进入（放大，显示其children）
-点击空白/返回 → 退出（缩小，显示父级）
-```
-
-## 文件组织
-
-```
-src/
-├── pipeline/
-│   ├── types/
-│   │   ├── atom.ts           # AtomMessage
-│   │   ├── unified.ts        # UMessage
-│   │   └── view.ts           # View
-│   ├── interfaces.ts         # 函数接口
-│   ├── default.ts            # 默认实现
-│   ├── alternatives/         # 替代实现
-│   │   ├── detect-topic.ts
-│   │   ├── aggregate.ts
-│   │   └── generate-views.ts
-│   └── executor.ts           # 执行器
-├── services/
-│   ├── embedding.ts          # Embedding生成
-│   ├── title.ts              # Title生成
-│   ├── position.ts           # 3D位置计算
-│   ├── topic-detection.ts    # 天干地支检测
-│   └── aggregation.ts        # 聚类算法
-└── store/
-    ├── atomStore.ts          # 原子层存储（不可变）
-    └── unifiedStore.ts       # 统一层存储（可变）
-```
+| **一种数据两种UI** | 聊天嵌套和3D星系嵌套共享同一数据 |

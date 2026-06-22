@@ -1,334 +1,159 @@
 "use client";
 
-import { OrbitControls, Stars } from "@react-three/drei";
-import { Canvas, useThree } from "@react-three/fiber";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Environment, OrbitControls } from "@react-three/drei";
+import { Canvas } from "@react-three/fiber";
+import { useCallback, useMemo, useState } from "react";
 import * as THREE from "three";
-import { embeddingService } from "@/lib/embedding-service";
 import { useSessionStore } from "@/store/sessionStore";
-import { PlanetNode } from "./components/PlanetNode";
-import { ConstellationEdge } from "./constellation-edge";
-import { Fireflies } from "./fireflies";
+import { generateTreeModel } from "@/lib/tree-generator";
+import { TreeNode } from "./tree-node";
+import type { AtomMessageData } from "@/types";
 
-function GalaxyNavigator() {
-  const {
-    session,
-    enterChat,
-    currentViewType,
-    nodeOffsets,
-    currentGalaxyId,
-    enterGalaxy,
-    exitGalaxy,
-  } = useSessionStore();
-  const { camera, gl } = useThree();
-  const controlsRef = useRef<any>(null);
-  const [modelReady, setModelReady] = useState(false);
-  const [targetCameraPos, setTargetCameraPos] = useState<THREE.Vector3 | null>(
-    null
+interface TreeSceneProps {
+  messages: AtomMessageData[];
+  onNodeClick: (message: AtomMessageData) => void;
+}
+
+function TreeScene({ messages, onNodeClick }: TreeSceneProps) {
+  const { branches, nodePositions } = useMemo(
+    () => generateTreeModel(messages),
+    [messages]
   );
-  const [targetCameraTarget, setTargetCameraTarget] =
-    useState<THREE.Vector3 | null>(null);
 
-  useEffect(() => {
-    if (!session) {
-      return;
-    }
-    let cancelled = false;
-    embeddingService.loadModel().then(() => {
-      if (!cancelled) {
-        setModelReady(true);
-      }
+  const branchMeshes = useMemo(() => {
+    return branches.map((branch, index) => {
+      const geometry = new THREE.TubeGeometry(
+        new THREE.QuadraticBezierCurve3(
+          branch.start,
+          new THREE.Vector3()
+            .addVectors(branch.start, branch.end)
+            .multiplyScalar(0.5)
+            .add(
+              new THREE.Vector3(
+                Math.sin(branch.depth * 1.5) * 0.2,
+                0.1,
+                Math.cos(branch.depth * 1.5) * 0.2
+              )
+            ),
+          branch.end
+        ),
+        8,
+        branch.thickness,
+        6,
+        false
+      );
+      return { geometry, key: index };
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [session]);
-
-  const constellationLayout = useMemo(() => {
-    if (!(session && modelReady)) {
-      return null;
-    }
-
-    const topics = Array.from(session.nodes.values()).map((node) => ({
-      id: node.id,
-      title: node.title,
-      embedding: node.embedding || null,
-      depth: node.depth,
-    }));
-
-    const viewEmbedding =
-      currentViewType === "default"
-        ? topics.find((t) => t.depth === 0)?.embedding || undefined
-        : undefined;
-
-    return embeddingService.buildTree(
-      topics,
-      viewEmbedding,
-      undefined,
-      nodeOffsets
-    );
-  }, [session, modelReady, currentViewType, nodeOffsets]);
-
-  const constellationModel = useMemo(() => {
-    if (!(constellationLayout && session)) {
-      return null;
-    }
-
-    const nodePositions = new Map<string, THREE.Vector3>();
-    for (const node of constellationLayout.nodes) {
-      nodePositions.set(
-        node.id,
-        new THREE.Vector3(node.position[0], node.position[1], node.position[2])
-      );
-    }
-
-    const edges: Array<{
-      from: THREE.Vector3;
-      to: THREE.Vector3;
-      fromId: string;
-      toId: string;
-    }> = [];
-
-    for (const edge of constellationLayout.edges) {
-      const fromPos = nodePositions.get(edge.from);
-      const toPos = nodePositions.get(edge.to);
-      if (!(fromPos && toPos)) {
-        continue;
-      }
-
-      edges.push({
-        from: fromPos.clone(),
-        to: toPos.clone(),
-        fromId: edge.from,
-        toId: edge.to,
-      });
-    }
-
-    return { nodePositions, edges, nodes: constellationLayout.nodes };
-  }, [constellationLayout, session]);
-
-  useEffect(() => {
-    if (!(constellationModel && currentGalaxyId)) {
-      setTargetCameraPos(null);
-      setTargetCameraTarget(null);
-      return;
-    }
-
-    const galaxyPos = constellationModel.nodePositions.get(currentGalaxyId);
-    if (!galaxyPos) {
-      return;
-    }
-
-    setTargetCameraPos(
-      new THREE.Vector3(galaxyPos.x, galaxyPos.y + 4, galaxyPos.z + 8)
-    );
-    setTargetCameraTarget(galaxyPos.clone());
-  }, [currentGalaxyId, constellationModel]);
-
-  useEffect(() => {
-    if (!(targetCameraPos && targetCameraTarget)) {
-      return;
-    }
-
-    const animate = () => {
-      camera.position.lerp(targetCameraPos, 0.05);
-      controlsRef.current?.target?.lerp(targetCameraTarget, 0.05);
-
-      if (
-        camera.position.distanceTo(targetCameraPos) > 0.01 ||
-        controlsRef.current?.target?.distanceTo(targetCameraTarget) > 0.01
-      ) {
-        requestAnimationFrame(animate);
-      }
-    };
-    animate();
-  }, [targetCameraPos, targetCameraTarget, camera]);
-
-  const getVisibleNodes = useCallback(() => {
-    if (!(session && currentGalaxyId)) {
-      return new Set(session?.nodes.keys());
-    }
-
-    const visible = new Set<string>();
-    const addNodeAndChildren = (nodeId: string) => {
-      visible.add(nodeId);
-      const node = session.nodes.get(nodeId);
-      if (node?.children) {
-        for (const childId of node.children) {
-          addNodeAndChildren(childId);
-        }
-      }
-    };
-
-    addNodeAndChildren(currentGalaxyId);
-    return visible;
-  }, [session, currentGalaxyId]);
-
-  const handleWheel = useCallback(
-    (event: WheelEvent) => {
-      if (!(constellationModel && session)) {
-        return;
-      }
-
-      const rect = gl.domElement.getBoundingClientRect();
-      const mouse = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1
-      );
-
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, camera);
-
-      const meshMap = new Map<THREE.Mesh, string>();
-      const meshes: THREE.Mesh[] = [];
-      for (const node of constellationModel.nodes) {
-        const pos = constellationModel.nodePositions.get(node.id);
-        if (pos) {
-          const dummyMesh = new THREE.Mesh(
-            new THREE.SphereGeometry(0.3),
-            new THREE.MeshBasicMaterial()
-          );
-          dummyMesh.position.copy(pos);
-          meshes.push(dummyMesh);
-          meshMap.set(dummyMesh, node.id);
-        }
-      }
-
-      const intersects = raycaster.intersectObjects(meshes);
-
-      if (event.deltaY < 0 && intersects.length > 0) {
-        const mesh = intersects[0].object as THREE.Mesh;
-        const nodeId = meshMap.get(mesh);
-        if (nodeId) {
-          const node = session.nodes.get(nodeId);
-          if (node?.children && node.children.length > 0) {
-            enterGalaxy(nodeId);
-          }
-        }
-      } else if (event.deltaY > 0 && currentGalaxyId) {
-        exitGalaxy();
-      }
-    },
-    [
-      constellationModel,
-      session,
-      enterGalaxy,
-      exitGalaxy,
-      currentGalaxyId,
-      gl,
-      camera,
-    ]
-  );
-
-  useEffect(() => {
-    gl.domElement.addEventListener("wheel", handleWheel, { passive: false });
-    return () => {
-      gl.domElement.removeEventListener("wheel", handleWheel);
-    };
-  }, [handleWheel, gl]);
-
-  const handleNodeClick = useCallback(
-    (nodeId: string, title: string) => {
-      const node = session?.nodes.get(nodeId);
-      if (node?.children && node.children.length > 0) {
-        enterGalaxy(nodeId);
-      } else {
-        enterChat(nodeId, title);
-      }
-    },
-    [enterChat, enterGalaxy, session]
-  );
-
-  const visibleNodes = getVisibleNodes();
-
-  if (!(constellationModel && session)) {
-    return null;
-  }
+  }, [branches]);
 
   return (
     <>
-      <color args={["#050814"]} attach="background" />
-      <fog args={["#050814", 15, 45]} attach="fog" />
+      {/* 环境光 */}
+      <ambientLight intensity={0.4} />
+      <directionalLight intensity={0.8} position={[10, 10, 5]} />
 
-      <Stars
-        count={3000}
-        depth={50}
-        factor={3}
-        fade
-        radius={80}
-        saturation={0}
-        speed={0.5}
-      />
-
-      <ambientLight color="#1a2040" intensity={0.08} />
-
-      <directionalLight
-        color="#b8c5e8"
-        intensity={0.4}
-        position={[10, 20, 10]}
-      />
-      <directionalLight
-        color="#6b7db3"
-        intensity={0.15}
-        position={[-10, -5, -10]}
-      />
-
-      <Fireflies count={60} />
-
-      {constellationModel.edges.map((edge, i) => {
-        if (!(visibleNodes.has(edge.fromId) && visibleNodes.has(edge.toId))) {
-          return null;
-        }
-        return (
-          <ConstellationEdge from={edge.from} key={`edge-${i}`} to={edge.to} />
-        );
-      })}
-
-      {constellationModel.nodes.map((node) => {
-        if (!visibleNodes.has(node.id)) {
-          return null;
-        }
-        const nodeData = session.nodes.get(node.id);
-        if (!nodeData) {
-          return null;
-        }
-        const pos = constellationModel.nodePositions.get(node.id);
-        if (!pos) {
-          return null;
-        }
-        return (
-          <PlanetNode
-            isGalaxy={nodeData.children.length > 0}
-            key={node.id}
-            node={nodeData}
-            onClick={() => handleNodeClick(node.id, node.title)}
-            position={pos}
+      {/* 树枝 */}
+      {branchMeshes.map(({ geometry, key }) => (
+        <mesh key={key} geometry={geometry}>
+          <meshStandardMaterial
+            color="#4A3728"
+            roughness={0.8}
+            metalness={0.1}
           />
-        );
-      })}
+        </mesh>
+      ))}
+
+      {/* 节点 */}
+      {nodePositions.map(({ id, message, position }) => (
+        <TreeNode
+          key={id}
+          message={message}
+          position={position}
+          onClick={() => onNodeClick(message)}
+        />
+      ))}
+
+      {/* 地面 */}
+      <mesh position={[0, -6.5, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[15, 64]} />
+        <meshStandardMaterial
+          color="#1a1a2e"
+          opacity={0.3}
+          transparent
+          roughness={1}
+        />
+      </mesh>
 
       <OrbitControls
-        enablePan={true}
-        enableRotate={true}
-        enableZoom={true}
-        maxDistance={50}
+        enableDamping
+        dampingFactor={0.05}
+        maxPolarAngle={Math.PI / 2}
         minDistance={3}
-        ref={controlsRef}
-        target={[0, 0, 0]}
+        maxDistance={20}
       />
+      <Environment preset="night" />
     </>
   );
 }
 
 export function KnowledgeTree() {
+  const session = useSessionStore((s) => s.session);
+  const [selectedMessage, setSelectedMessage] = useState<AtomMessageData | null>(
+    null
+  );
+
+  const handleNodeClick = useCallback((message: AtomMessageData) => {
+    setSelectedMessage(message);
+  }, []);
+
+  if (!session || !session.messages || session.messages.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center text-slate-400">
+        <p>暂无知识树数据</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-screen w-full bg-slate-950">
-      <Canvas
-        camera={{ position: [0, 2, 16], fov: 55 }}
-        gl={{ antialias: true, alpha: true }}
-      >
-        <GalaxyNavigator />
+    <div className="relative h-full w-full">
+      <Canvas camera={{ position: [0, 2, 10], fov: 50 }}>
+        <TreeScene messages={session.messages} onNodeClick={handleNodeClick} />
       </Canvas>
+
+      {/* 选中节点信息 */}
+      {selectedMessage && (
+        <div className="absolute bottom-4 left-4 right-4 rounded-lg border border-slate-700 bg-slate-900/90 p-4 backdrop-blur">
+          <div className="mb-2 flex items-center gap-2">
+            <span
+              className={`rounded px-2 py-0.5 text-xs ${
+                selectedMessage.role === "topic"
+                  ? "bg-emerald-500/20 text-emerald-400"
+                  : selectedMessage.role === "user"
+                    ? "bg-blue-500/20 text-blue-400"
+                    : "bg-purple-500/20 text-purple-400"
+              }`}
+            >
+              {selectedMessage.role === "topic"
+                ? "话题"
+                : selectedMessage.role === "user"
+                  ? "用户"
+                  : "AI"}
+            </span>
+            <span className="font-medium text-white">
+              {selectedMessage.title || "无标题"}
+            </span>
+          </div>
+          <p className="text-slate-300 text-sm">
+            {selectedMessage.content || "无内容"}
+          </p>
+          <button
+            className="mt-2 text-slate-400 text-xs hover:text-white"
+            onClick={() => setSelectedMessage(null)}
+          >
+            关闭
+          </button>
+        </div>
+      )}
     </div>
   );
 }

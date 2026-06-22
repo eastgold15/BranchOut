@@ -1,90 +1,56 @@
-export type NodeStatus =
-  | "untouched"
-  | "mentioned"
-  | "explored"
-  | "mastered"
-  | "weak";
-export type MessageRole = "user" | "assistant";
-export type MessageType = "text" | "correction" | "question" | "summary";
-export type NodeSource = "ai-init" | "user-mention" | "ai-correction";
+// AtomMessage 统一数据结构
+// role = "topic" → 话题（可以有 children）
+// role = "user" 或 "assistant" → 消息（属于某个话题）
+export type MessageRole = "user" | "assistant" | "topic";
 export type SessionStatus = "active" | "completed" | "archived";
-export type ViewType =
-  | "default"
-  | "semantic"
-  | "chronological"
-  | "problem-solving"
-  | string; // 允许自定义视角 ID
 
-export interface CustomView {
+export interface AtomMessageData {
   id: string;
-  name: string;
-  segments: Array<{ title: string; nodeIds: string[] }>;
-  viewGroups?: ViewGroup[];
-}
-
-export interface ViewGroup {
-  color: string;
-  createdAt: Date;
-  id: string;
-  nodeIds: string[];
-  parentId: string | null;
-  position: number;
-  title: string;
-  updatedAt: Date;
-  viewId: string;
-}
-
-export interface TopicNodeData {
-  children: string[];
+  sessionId: string;
   content: string;
-  createdAt: Date;
-  depth: number;
-  embedding?: number[] | null;
-  id: string;
-  offset?: string; // JSON: "[x,y,z]" 3D偏移量
-  parentId: string | null;
-  source: NodeSource;
-  status: NodeStatus;
-  title: string;
-  updatedAt: Date;
-}
-
-export interface ChatMessageData {
-  content: string;
-  id: string;
-  nodeId: string;
   role: MessageRole;
-  spawnedNodeId?: string;
   timestamp: Date;
-  type: MessageType;
+  title: string; // 简述目的（AI生成）
+  embedding?: number[] | null; // 语义向量（384维）
+  parentId: string | null; // null 表示根话题，有值表示属于某个话题
+  children?: AtomMessageData[]; // 子消息/话题（用于嵌套渲染）
 }
 
+// 辅助类型
+export type TopicData = AtomMessageData & { role: "topic" };
+export type ChatMessageData = AtomMessageData & { role: "user" | "assistant" };
+
+// 会话数据
 export interface KnowledgeSession {
-  createdAt: Date;
-  currentFocusNodeId: string | null;
   id: string;
-  nodes: Map<string, TopicNodeData>;
-  rootNodeId: string;
   rootTopic: string;
+  userId: string;
   status: SessionStatus;
+  createdAt: Date;
   updatedAt: Date;
+  // 消息树（AtomMessage）
+  messages: AtomMessageData[];
 }
 
+// 树渲染节点（用于 3D 视图）
 export interface TreeRenderNode {
-  depth: number;
   id: string;
   position: [number, number, number];
-  status: NodeStatus;
+  scale: number; // children.length * 基础大小
   title: string;
+  isTopic: boolean; // role === "topic"
 }
 
+// 树渲染边（用于 3D 视图）
 export interface TreeRenderEdge {
   from: string;
   to: string;
 }
 
+// 视图模式
 export type ViewMode = "tree" | "chat";
 
+// 导航栈项
 export interface NavigationStackItem {
   nodeId: string;
   title: string;
